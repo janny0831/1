@@ -8,41 +8,18 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    
+    <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, addDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // ==========================================
-        // ⚠️ 重要：請在此處填入您的 Firebase 設定
-        // 您可以在 Firebase Console > Project Settings > General 下方找到
-        // ==========================================
-        const firebaseConfig = {
-            apiKey: "您的API_KEY",
-            authDomain: "您的PROJECT_ID.firebaseapp.com",
-            projectId: "您的PROJECT_ID",
-            storageBucket: "您的PROJECT_ID.firebasestorage.app",
-            messagingSenderId: "您的SENDER_ID",
-            appId: "您的APP_ID"
-        };
-
-        // 偵測是否已設定 Config，若無則避免報錯
-        let app, auth, db;
-        const appId = 'emission-system-default';
-
-        try {
-            // 如果使用者沒有修改上面的 Config，這裡可能會報錯，我們做個防呆
-            if (firebaseConfig.apiKey === "您的API_KEY") {
-                console.warn("⚠️ 尚未設定 Firebase Config，系統將以「離線預覽模式」運行。");
-            } else {
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-            }
-        } catch (e) {
-            console.error("Firebase 初始化失敗:", e);
-        }
+        // Firebase 配置
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'emission-system-default';
 
         window.db = db;
         window.auth = auth;
@@ -51,24 +28,19 @@
 
         // 身份驗證與初始化
         async function initApp() {
-            if (!auth) return; // 離線模式不執行登入
-
-            try {
-                // 嘗試匿名登入
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
                 await signInAnonymously(auth);
-            } catch (error) {
-                console.error("Auth Error:", error);
             }
         }
 
-        if (auth) {
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    console.log("Authenticated as:", user.uid);
-                    startSync(user.uid);
-                }
-            });
-        }
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                console.log("Authenticated as:", user.uid);
+                startSync(user.uid);
+            }
+        });
 
         initApp();
     </script>
@@ -95,8 +67,8 @@
             <div>
                 <h1 class="text-xl font-black text-slate-800 tracking-tight">大量科技排放計算系統</h1>
                 <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1">
-                    <span id="sync-status" class="w-2 h-2 bg-slate-300 rounded-full"></span>
-                    <span id="sync-text">System Ready</span>
+                    <span id="sync-status" class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                    Cloud Firestore Connected
                 </p>
             </div>
         </div>
@@ -114,6 +86,7 @@
     </nav>
 
     <main class="flex-1 overflow-y-auto p-8">
+        <!-- 儀表板頁面 (內容不變) -->
         <div id="tab-dashboard" class="tab-content active max-w-6xl mx-auto space-y-8">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-5">
                 <div class="bg-white p-6 rounded-3xl shadow-sm border-l-8 border-slate-900 flex justify-between items-start">
@@ -160,6 +133,7 @@
             <div id="dashboard-table-container"></div>
         </div>
 
+        <!-- 數據錄入頁面 (內容不變) -->
         <div id="tab-calculator" class="tab-content max-w-4xl mx-auto space-y-8">
             <div class="bg-white p-10 rounded-[40px] shadow-sm border border-slate-200">
                 <h2 class="text-2xl font-black mb-8 text-slate-800 flex items-center gap-3">
@@ -189,7 +163,9 @@
             <div id="calculator-table-container"></div>
         </div>
 
+        <!-- 係數資料庫頁面 (增加身份驗證) -->
         <div id="tab-settings" class="tab-content max-w-full mx-auto space-y-4">
+            <!-- 登入區塊 -->
             <div id="admin-auth-panel" class="bg-white p-6 rounded-[24px] border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
                 <div class="flex items-center gap-3">
                     <div id="auth-icon-bg" class="bg-slate-100 p-2 rounded-xl">
@@ -210,7 +186,7 @@
             <div class="bg-white rounded-[32px] border border-slate-200 shadow-xl overflow-hidden">
                 <div class="px-10 py-8 bg-indigo-600 text-white flex justify-between items-center">
                     <div>
-                        <h2 class="text-2xl font-black flex items-center gap-3"><i data-lucide="shield-check" class="w-7 h-7"></i> 完整係數資料庫</h2>
+                        <h2 class="text-2xl font-black flex items-center gap-3"><i data-lucide="shield-check" class="w-7 h-7"></i> 28 項完整係數資料庫</h2>
                         <p class="text-indigo-100 text-sm mt-1">係數已與雲端同步。修改權限受管理員密碼保護。</p>
                     </div>
                 </div>
@@ -247,9 +223,10 @@
         let userId = null;
         let isAdmin = false;
 
-        const ADMIN_SECRET = "hw911026";
+        // 管理員密碼 (實際應用中應於後端驗證，此處為單機/演示版本範例)
+        const ADMIN_SECRET = "";
 
-        // 初始係數資料 (本地備份，防止雲端連線失敗時空白)
+        // 初始係數資料 (若資料庫無資料則以此初始化)
         let factors = [
             { id: 'gen_diesel', name: '緊急發電機 (柴油)', category: 'scope1', type: 'fuel', unit: '公秉', co2: 2.681110327, ch4: 0.000108547, n2o: 0.0000217094, desc: '固定源 (E)' },
             { id: 'car_gasoline', name: '車用汽油 (公務車)', category: 'scope1', type: 'fuel', unit: '公秉', co2: 2.2077151312, ch4: 0.000796434, n2o: 0.0002548589, desc: '移動源 (T)' },
@@ -283,10 +260,6 @@
 
         window.onload = () => {
             lucide.createIcons();
-            // ⚠️ 關鍵修正：頁面載入時先建立一次下拉選單，避免等待雲端資料時空白
-            populateSelect();
-            renderFactors();
-            updateDashboard();
         };
 
         // --- 管理員驗證邏輯 ---
@@ -335,18 +308,14 @@
         // --- Firebase 即時數據監控 ---
         function startSync(uid) {
             userId = uid;
-            document.getElementById('sync-status').classList.remove('bg-slate-300');
-            document.getElementById('sync-status').classList.add('bg-emerald-500', 'animate-pulse');
-            document.getElementById('sync-text').innerText = "Cloud Connected";
-
-            if(!window.fs || !window.db) return;
+            document.getElementById('sync-status').classList.remove('bg-red-500');
+            document.getElementById('sync-status').classList.add('bg-emerald-500');
 
             const factorsCol = window.fs.collection(window.db, 'artifacts', window.appId, 'users', uid, 'factors');
             window.fs.onSnapshot(factorsCol, (snapshot) => {
                 if (!snapshot.empty) {
                     factors = snapshot.docs.map(doc => doc.data());
                 } else {
-                    // 若雲端無資料，將本地預設資料上傳
                     factors.forEach(f => {
                         window.fs.setDoc(window.fs.doc(factorsCol, f.id), f);
                     });
@@ -509,150 +478,106 @@
             });
         }
 
-        // 這是您之前遺漏/截斷的表格渲染程式碼
         function renderTable(containerId, data, showDelete = false) {
             const container = document.getElementById(containerId);
             if (!container) return;
             const html = `
                 <div class="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden mt-8">
-                    <div class="px-10 py-8 border-b border-slate-100 flex justify-between items-center">
-                        <h3 class="font-black text-slate-700 text-lg">詳細數據列表</h3>
-                        <span class="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">${data.length} 筆資料</span>
+                    <div class="px-10 py-6 border-b border-slate-100 bg-slate-50/30 flex justify-between items-center">
+                        <h3 class="font-black text-slate-800 flex items-center gap-2"><i data-lucide="list"></i> 紀錄清單 (${data.length})</h3>
+                        ${!showDelete ? `<button onclick="exportToExcel()" class="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-700">匯出報告</button>` : ''}
                     </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead class="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
-                                <tr>
-                                    <th class="px-10 py-5">日期</th>
-                                    <th class="px-6 py-5">排放源</th>
-                                    <th class="px-6 py-5 text-right">活動數據</th>
-                                    <th class="px-6 py-5 text-right">排放量 (tCO2e)</th>
-                                    <th class="px-6 py-5">備註</th>
-                                    ${showDelete ? '<th class="px-6 py-5 text-right">操作</th>' : ''}
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-50 text-sm">
-                                ${data.length === 0 ? 
-                                    `<tr><td colspan="${showDelete ? 6 : 5}" class="px-10 py-8 text-center text-slate-400 font-bold">目前尚無數據紀錄</td></tr>` : 
-                                    data.map(r => {
-                                        const f = factors.find(it => it.id === r.sourceId);
-                                        const emission = calculateEmission(r);
-                                        const date = new Date(r.timestamp).toLocaleDateString('zh-TW');
-                                        return `
-                                            <tr class="hover:bg-slate-50 transition-colors group">
-                                                <td class="px-10 py-5 font-bold text-slate-500 font-mono text-xs">${date}</td>
-                                                <td class="px-6 py-5 font-bold text-slate-700">
-                                                    ${f ? f.name : r.sourceId}
-                                                    <span class="ml-2 px-1.5 py-0.5 rounded text-[9px] uppercase ${f?.category === 'scope1' ? 'bg-red-50 text-red-600' : f?.category === 'scope2' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}">${f?.category || '?'}</span>
-                                                </td>
-                                                <td class="px-6 py-5 text-right font-mono font-bold text-slate-600">${parseFloat(r.value).toLocaleString()} <span class="text-[9px] text-slate-400">${f?.unit || ''}</span></td>
-                                                <td class="px-6 py-5 text-right font-mono font-black text-indigo-600">${emission.toFixed(4)}</td>
-                                                <td class="px-6 py-5 text-slate-400 text-xs">${r.note || '-'}</td>
-                                                ${showDelete ? `
-                                                    <td class="px-6 py-5 text-right">
-                                                        <button onclick="deleteRecord('${r.id}')" class="text-slate-300 hover:text-red-500 transition-colors p-2 rounded-full hover:bg-red-50">
-                                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
-                                                        </button>
-                                                    </td>
-                                                ` : ''}
-                                            </tr>
-                                        `;
-                                    }).join('')
-                                }
-                            </tbody>
-                        </table>
-                    </div>
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b">
+                            <tr><th class="px-10 py-4">日期</th><th class="px-6 py-4">項目</th><th class="px-6 py-4 text-right">數量</th><th class="px-6 py-4 text-right">當量 (tCO2e)</th><th class="px-10 py-4 text-right">操作</th></tr>
+                        </thead>
+                        <tbody class="divide-y">${data.map(r => {
+                            const f = factors.find(it => it.id === r.sourceId);
+                            if (!f) return '';
+                            return `<tr>
+                                <td class="px-10 py-4 font-bold">${r.date}</td>
+                                <td class="px-6 py-4">${f.name}</td>
+                                <td class="px-6 py-4 text-right font-mono">${r.value} ${f.unit}</td>
+                                <td class="px-6 py-4 text-right font-mono font-black text-indigo-600">${calculateEmission(r).toFixed(4)}</td>
+                                <td class="px-10 py-4 text-right">${showDelete ? `<button onclick="deleteRecord('${r.id}')" class="text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : r.note || ''}</td>
+                            </tr>`;
+                        }).join('')}</tbody>
+                    </table>
                 </div>
             `;
             container.innerHTML = html;
             lucide.createIcons();
         }
 
-        async function deleteRecord(id) {
-            if (!userId) return;
-            if (confirm('確定要刪除這筆紀錄嗎？')) {
-                try {
-                    await window.fs.deleteDoc(window.fs.doc(window.db, 'artifacts', window.appId, 'users', userId, 'records', id));
-                    triggerToast('紀錄已刪除');
-                } catch (e) { console.error(e); triggerToast('刪除失敗', 'red'); }
-            }
-        }
-
-        // 表單提交處理
-        document.getElementById('record-form').addEventListener('submit', async (e) => {
+        document.getElementById('record-form').onsubmit = async (e) => {
             e.preventDefault();
+            if (!userId) return triggerToast('尚未連線資料庫');
+            
             const sourceId = document.getElementById('source-select').value;
-            const value = document.getElementById('input-value').value;
+            const value = parseFloat(document.getElementById('input-value').value);
             const note = document.getElementById('input-note').value;
-
-            if (!sourceId || !value) {
-                triggerToast('請填寫完整資料', 'red');
-                return;
-            }
-
-            if (!userId) {
-                // 離線/演示模式
-                const newRecord = {
-                    id: 'local_' + Date.now(),
-                    sourceId,
-                    value: parseFloat(value),
-                    note,
-                    timestamp: Date.now()
-                };
-                records.unshift(newRecord);
-                updateDashboard();
-                triggerToast('已暫存 (離線模式)');
-                e.target.reset();
-                return;
-            }
-
-            // 雲端儲存模式
-            const btn = document.getElementById('submit-btn');
-            const originalContent = btn.innerHTML;
-            btn.innerHTML = '<span class="animate-spin mr-2">⏳</span> 儲存中...';
-            btn.disabled = true;
-
+            
             try {
-                const col = window.fs.collection(window.db, 'artifacts', window.appId, 'users', userId, 'records');
-                await window.fs.addDoc(col, {
+                const recordsCol = window.fs.collection(window.db, 'artifacts', window.appId, 'users', userId, 'records');
+                await window.fs.addDoc(recordsCol, {
                     sourceId,
-                    value: parseFloat(value),
+                    value,
                     note,
+                    date: new Date().toLocaleDateString(),
                     timestamp: Date.now()
                 });
-                triggerToast('數據已成功錄入');
-                e.target.reset();
+                
+                document.getElementById('input-value').value = '';
+                document.getElementById('input-note').value = '';
+                triggerToast('數據已儲存至雲端');
             } catch (err) {
                 console.error(err);
-                triggerToast('儲存失敗', 'red');
-            } finally {
-                btn.innerHTML = originalContent;
-                btn.disabled = false;
+                triggerToast('儲存失敗');
             }
-        });
+        };
 
-        function triggerToast(msg, color = 'emerald') {
+        async function deleteRecord(id) {
+            if (!userId) return;
+            try {
+                const docRef = window.fs.doc(window.db, 'artifacts', window.appId, 'users', userId, 'records', id);
+                await window.fs.deleteDoc(docRef);
+                triggerToast('紀錄已刪除');
+            } catch (e) { console.error(e); }
+        }
+
+        function triggerToast(msg, type = 'emerald') {
             const t = document.getElementById('toast');
             const icon = document.getElementById('toast-icon');
-            const txt = document.getElementById('toast-msg');
             
-            txt.innerText = msg;
-            if (color === 'red') {
-                icon.classList.remove('text-emerald-400');
-                icon.classList.add('text-red-400');
+            document.getElementById('toast-msg').innerText = msg;
+            
+            if (type === 'red') {
+                icon.classList.replace('text-emerald-400', 'text-red-400');
                 icon.setAttribute('data-lucide', 'alert-circle');
             } else {
-                icon.classList.remove('text-red-400');
-                icon.classList.add('text-emerald-400');
+                icon.classList.replace('text-red-400', 'text-emerald-400');
                 icon.setAttribute('data-lucide', 'check-circle-2');
             }
+            
             lucide.createIcons();
-
-            t.classList.remove('hidden', 'translate-x-full');
-            setTimeout(() => {
-                t.classList.add('translate-x-full');
-                setTimeout(() => t.classList.add('hidden'), 300);
+            t.classList.remove('hidden');
+            setTimeout(() => t.style.transform = 'translateX(0)', 10);
+            setTimeout(() => { 
+                t.style.transform = 'translateX(100%)'; 
+                setTimeout(() => t.classList.add('hidden'), 300); 
             }, 3000);
+        }
+
+        function exportToExcel() {
+            if (records.length === 0) return triggerToast('無資料');
+            const data = records.map(r => {
+                const f = factors.find(it => it.id === r.sourceId);
+                return { '日期': r.date, '範疇': f.category.toUpperCase(), '項目': f.name, '數量': r.value, '單位': f.unit, '排放當量': calculateEmission(r).toFixed(6), '備註': r.note };
+            });
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Inventory");
+            XLSX.writeFile(wb, "大量科技排放報告_雲端同步版.xlsx");
         }
     </script>
 </body>
