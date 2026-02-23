@@ -1,328 +1,341 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Upload, FileText, Download, Trash2, CheckCircle2, Loader2, Eye, MapPin, Calendar, Zap, AlertCircle } from 'lucide-react';
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>電力項目 AI 辨識系統</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- SheetJS for XLSX -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .animate-spin-slow { animation: spin 3s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
 
-const API_KEY = ""; // 執行環境會自動注入
-const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
-
-// 引入 XLSX 函式庫
-const loadXLSX = () => {
-  return new Promise((resolve) => {
-    const script = document.createElement('script');
-    script.src = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
-    script.onload = () => resolve(window.XLSX);
-    document.head.appendChild(script);
-  });
-};
-
-const App = () => {
-  const [files, setFiles] = useState([]);
-  const [records, setRecords] = useState([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [previewImage, setPreviewImage] = useState(null);
-
-  // 1. 處理檔案上傳
-  const handleFileUpload = (e) => {
-    const uploadedFiles = Array.from(e.target.files);
-    const newFiles = uploadedFiles.map(file => ({
-      id: crypto.randomUUID(),
-      file,
-      preview: URL.createObjectURL(file),
-      status: 'pending' 
-    }));
-    setFiles(prev => [...prev, ...newFiles]);
-  };
-
-  // 2. 呼叫 Gemini API 進行辨識
-  const recognizeBill = async (fileObj) => {
-    try {
-      const base64Data = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
-        reader.readAsDataURL(fileObj.file);
-      });
-
-      const prompt = `
-        你是一個電費單辨識專家。請從這張電費單圖片中提取以下資訊並以 JSON 格式回傳：
-        1. address: 判斷用電地址是「桃園市八德區友聯街72號1樓」還是「八德區瑞塘里友聯街62號」。
-        2. startDate: 計費期間的開始日期 (格式: YYYY-MM-DD)。
-        3. endDate: 計費期間的結束日期 (格式: YYYY-MM-DD)。
-        4. usage: 總用電度數 (數字)。
-
-        請嚴格遵守 JSON 格式，不要包含任何額外說明文字。
-      `;
-
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType: fileObj.file.type, data: base64Data } }
-            ]
-          }],
-          generationConfig: {
-            responseMimeType: "application/json",
-          }
-        })
-      });
-
-      if (!response.ok) throw new Error('API request failed');
-      const result = await response.json();
-      const data = JSON.parse(result.candidates[0].content.parts[0].text);
-      
-      return {
-        id: fileObj.id,
-        address: data.address,
-        startDate: data.startDate,
-        endDate: data.endDate,
-        usage: parseInt(data.usage),
-        preview: fileObj.preview,
-        timestamp: new Date(data.startDate).getTime()
-      };
-    } catch (error) {
-      console.error("Recognition Error:", error);
-      throw error;
-    }
-  };
-
-  // 3. 批量處理辨識
-  const processFiles = async () => {
-    setIsProcessing(true);
-    const pendingFiles = files.filter(f => f.status === 'pending');
-    
-    for (const fileObj of pendingFiles) {
-      setFiles(prev => prev.map(f => f.id === fileObj.id ? { ...f, status: 'processing' } : f));
-      
-      try {
-        const record = await recognizeBill(fileObj);
-        setRecords(prev => [...prev, record]);
-        setFiles(prev => prev.map(f => f.id === fileObj.id ? { ...f, status: 'completed' } : f));
-      } catch (err) {
-        setFiles(prev => prev.map(f => f.id === fileObj.id ? { ...f, status: 'error' } : f));
-      }
-    }
-    setIsProcessing(false);
-  };
-
-  // 4. 排序邏輯 (依日期排序)
-  const sortedRecords = [...records].sort((a, b) => a.timestamp - b.timestamp);
-
-  // 5. 匯出 XLSX
-  const exportXLSX = async () => {
-    const XLSX = await loadXLSX();
-    
-    const groupA = sortedRecords.filter(r => r.address.includes("72號"));
-    const groupB = sortedRecords.filter(r => r.address.includes("62號"));
-
-    // 建立二維陣列資料
-    const data = [
-      ["友聯街(72號)", null, null, null, null, "友聯街(62號)"],
-      ["項次", "開始日期", "結束日期", "度數", null, "項次", "度數"]
-    ];
-
-    const maxLen = Math.max(groupA.length, groupB.length);
-    for (let i = 0; i < maxLen; i++) {
-      const a = groupA[i] || {};
-      const b = groupB[i] || {};
-      data.push([
-        a.id ? i + 1 : null,
-        a.startDate || null,
-        a.endDate || null,
-        a.usage || null,
-        null,
-        b.id ? i + 1 : null,
-        b.usage || null
-      ]);
-    }
-
-    // 建立活頁簿
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Scope2_Electricity");
-
-    // 檔案下載
-    XLSX.writeFile(wb, `大量科技_電力盤查匯出_${new Date().getFullYear()}.xlsx`);
-  };
-
-  const removeFile = (id) => {
-    setFiles(prev => prev.filter(f => f.id !== id));
-    setRecords(prev => prev.filter(r => r.id !== id));
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-900">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
-              <Zap className="text-yellow-500 fill-yellow-500" />
-              電力項目 AI 辨識系統
-            </h1>
-            <p className="text-slate-500 mt-1">自動辨識、排序並匯出 XLSX 盤查報表</p>
-          </div>
-          <div className="flex gap-2">
-            <button 
-              onClick={exportXLSX}
-              disabled={records.length === 0}
-              className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all shadow-md active:scale-95"
-            >
-              <Download size={18} /> 匯出 XLSX
-            </button>
-          </div>
+    <div id="app" class="max-w-6xl mx-auto p-4 md:p-8">
+        <!-- Header -->
+        <header class="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-slate-800 flex items-center gap-3">
+                    <i data-lucide="zap" class="text-yellow-500 fill-yellow-500"></i>
+                    電力項目 AI 辨識系統
+                </h1>
+                <p class="text-slate-500 mt-1">自動辨識、排序並匯出 XLSX 盤查報表</p>
+            </div>
+            <div class="flex gap-2">
+                <button id="exportBtn" disabled class="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all shadow-md active:scale-95">
+                    <i data-lucide="download"></i> 匯出 XLSX
+                </button>
+            </div>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Column */}
-          <div className="lg:col-span-4 space-y-6">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-              <label className="block w-full cursor-pointer">
-                <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-400 hover:bg-blue-50 transition-all group">
-                  <Upload className="mx-auto text-slate-400 group-hover:text-blue-500 mb-2" size={32} />
-                  <span className="text-slate-600 font-medium">上傳電費單圖片</span>
-                  <input type="file" multiple accept="image/*" className="hidden" onChange={handleFileUpload} />
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <!-- Left Column: Upload & Queue -->
+            <div class="lg:col-span-4 space-y-6">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <label class="block w-full cursor-pointer">
+                        <div class="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-400 hover:bg-blue-50 transition-all group">
+                            <i data-lucide="upload" class="mx-auto text-slate-400 group-hover:text-blue-500 mb-2"></i>
+                            <span class="text-slate-600 font-medium">上傳電費單圖片</span>
+                            <input type="file" id="fileInput" multiple accept="image/*" class="hidden">
+                        </div>
+                    </label>
+
+                    <button id="processBtn" class="hidden w-full mt-4 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98]">
+                        <i data-lucide="file-text"></i>
+                        <span>開始批次辨識</span>
+                    </button>
                 </div>
-              </label>
 
-              {files.length > 0 && (
-                <button
-                  onClick={processFiles}
-                  disabled={isProcessing || !files.some(f => f.status === 'pending')}
-                  className="w-full mt-4 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98]"
-                >
-                  {isProcessing ? <Loader2 className="animate-spin" /> : <FileText size={20} />}
-                  {isProcessing ? '正在辨識檔案...' : '開始批次辨識'}
-                </button>
-              )}
-            </div>
-
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="p-4 bg-slate-50 border-b border-slate-200 font-semibold text-slate-700 flex justify-between">
-                <span>上傳進度</span>
-                <span className="text-blue-600">{files.length} 檔案</span>
-              </div>
-              <div className="max-h-[350px] overflow-y-auto">
-                {files.map(file => (
-                  <div key={file.id} className="p-3 border-b flex items-center justify-between group hover:bg-slate-50">
-                    <div className="flex items-center gap-3 overflow-hidden">
-                      <div className="relative">
-                        <img src={file.preview} className="w-10 h-10 object-cover rounded border" alt="preview" />
-                        {file.status === 'completed' && (
-                          <div className="absolute -top-1 -right-1 bg-green-500 text-white rounded-full p-0.5">
-                            <CheckCircle2 size={10} />
-                          </div>
-                        )}
-                      </div>
-                      <div className="truncate">
-                        <p className="text-xs font-medium text-slate-700 truncate">{file.file.name}</p>
-                        <span className="text-[10px] text-slate-400">{(file.file.size / 1024 / 1024).toFixed(2)} MB</span>
-                      </div>
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-4 bg-slate-50 border-b border-slate-200 font-semibold text-slate-700 flex justify-between">
+                        <span>上傳清單</span>
+                        <span id="fileCount" class="text-blue-600">0 檔案</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {file.status === 'processing' && <Loader2 size={14} className="text-blue-500 animate-spin" />}
-                      {file.status === 'error' && <AlertCircle size={14} className="text-red-500" />}
-                      <button onClick={() => removeFile(file.id)} className="p-1 text-slate-400 hover:text-red-500 transition-colors">
-                        <Trash2 size={16} />
-                      </button>
+                    <div id="fileList" class="max-h-[350px] overflow-y-auto">
+                        <div class="p-10 text-center text-slate-400 text-sm">請選擇檔案上傳</div>
                     </div>
-                  </div>
-                ))}
-                {files.length === 0 && (
-                  <div className="p-10 text-center text-slate-400 text-sm">請選擇檔案上傳</div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column */}
-          <div className="lg:col-span-8">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 h-full flex flex-col min-h-[550px]">
-              <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                <span className="font-semibold text-slate-700">自動排序結果</span>
-                <div className="flex gap-4 text-xs">
-                  <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-indigo-500"></div> 72號</span>
-                  <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> 62號</span>
                 </div>
-              </div>
-              
-              <div className="flex-1 overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider border-b">
-                    <tr>
-                      <th className="px-4 py-3 font-semibold">項次</th>
-                      <th className="px-4 py-3 font-semibold">用電地址</th>
-                      <th className="px-4 py-3 font-semibold">計費期間</th>
-                      <th className="px-4 py-3 font-semibold">用電度數</th>
-                      <th className="px-4 py-3 font-semibold text-center">佐證</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y text-sm">
-                    {sortedRecords.map((record, index) => (
-                      <tr key={record.id} className="hover:bg-blue-50/40 transition-colors">
-                        <td className="px-4 py-4 text-slate-400 font-mono text-xs">{index + 1}</td>
-                        <td className="px-4 py-4">
-                          <div className="flex items-center gap-2">
-                            <MapPin size={14} className={record.address.includes("72號") ? "text-indigo-500" : "text-emerald-500"} />
-                            <span className="font-medium text-slate-700 whitespace-nowrap">
-                              {record.address.includes("72號") ? "友聯街72號" : "友聯街62號"}
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-slate-400 block ml-5 truncate max-w-[150px]">{record.address}</span>
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex items-center gap-2 text-slate-600 whitespace-nowrap">
-                            <Calendar size={13} />
-                            <span>{record.startDate} ~ {record.endDate}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4">
-                          <span className="font-bold text-slate-800">{record.usage.toLocaleString()}</span>
-                          <span className="text-[10px] text-slate-400 ml-1">度</span>
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          <button 
-                            onClick={() => setPreviewImage(record.preview)}
-                            className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md transition-all shadow-sm border border-blue-200"
-                          >
-                            <Eye size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {sortedRecords.length === 0 && (
-                      <tr>
-                        <td colSpan="5" className="px-4 py-24 text-center">
-                          <div className="text-slate-300 mb-2 italic">尚未產生數據</div>
-                          <p className="text-xs text-slate-400 font-light">辨識完成後，資料會自動在此依日期排序</p>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
             </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Preview Modal */}
-      {previewImage && (
-        <div className="fixed inset-0 bg-slate-900/90 z-50 flex items-center justify-center p-4 backdrop-blur-md" onClick={() => setPreviewImage(null)}>
-          <div className="relative max-w-5xl w-full bg-white rounded-2xl p-2 shadow-2xl animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
-            <button className="absolute top-4 right-4 bg-white/20 hover:bg-white/40 text-white p-2 rounded-full backdrop-blur-md transition-all z-10" onClick={() => setPreviewImage(null)}>
-              <Trash2 size={20} className="rotate-45" />
-            </button>
-            <img src={previewImage} className="w-full h-auto max-h-[80vh] object-contain rounded-xl" alt="Full Evidence" />
-            <div className="p-4 flex justify-between items-center text-slate-500">
-              <span className="text-sm font-medium italic">電費單原始影本 (佐證資料)</span>
-              <button onClick={() => setPreviewImage(null)} className="text-xs bg-slate-100 px-3 py-1 rounded-full hover:bg-slate-200">關閉預覽</button>
+            <!-- Right Column: Results Table -->
+            <div class="lg:col-span-8">
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 h-full flex flex-col min-h-[550px]">
+                    <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                        <span class="font-semibold text-slate-700">自動排序結果</span>
+                        <div class="flex gap-4 text-xs">
+                            <span class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-indigo-500"></div> 72號</span>
+                            <span class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-emerald-500"></div> 62號</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex-1 overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider border-b">
+                                <tr>
+                                    <th class="px-4 py-3 font-semibold">項次</th>
+                                    <th class="px-4 py-3 font-semibold">用電地址</th>
+                                    <th class="px-4 py-3 font-semibold">計費期間</th>
+                                    <th class="px-4 py-3 font-semibold">用電度數</th>
+                                    <th class="px-4 py-3 font-semibold text-center">佐證</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultBody" class="divide-y text-sm">
+                                <tr>
+                                    <td colspan="5" class="px-4 py-24 text-center">
+                                        <div class="text-slate-300 mb-2 italic">尚未產生數據</div>
+                                        <p class="text-xs text-slate-400 font-light">辨識完成後，資料會自動在此依日期排序</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
-          </div>
         </div>
-      )}
     </div>
-  );
-};
 
-export default App;
+    <!-- Image Modal -->
+    <div id="imageModal" class="hidden fixed inset-0 bg-slate-900/90 z-50 flex items-center justify-center p-4 backdrop-blur-md">
+        <div class="relative max-w-5xl w-full bg-white rounded-2xl p-2 shadow-2xl">
+            <button id="closeModal" class="absolute top-4 right-4 bg-slate-800/50 hover:bg-slate-800 text-white p-2 rounded-full z-10">
+                <i data-lucide="x"></i>
+            </button>
+            <img id="modalImg" src="" class="w-full h-auto max-h-[80vh] object-contain rounded-xl shadow-inner">
+            <div class="p-4 flex justify-between items-center text-slate-500">
+                <span class="text-sm font-medium italic">電費單原始影本 (佐證資料)</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 配置
+        const API_KEY = ""; // 環境自動注入
+        const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
+        
+        // 狀態管理
+        let files = [];
+        let records = [];
+        let isProcessing = false;
+
+        // 初始化圖標
+        lucide.createIcons();
+
+        // 元素選取
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const fileCount = document.getElementById('fileCount');
+        const processBtn = document.getElementById('processBtn');
+        const resultBody = document.getElementById('resultBody');
+        const exportBtn = document.getElementById('exportBtn');
+        const imageModal = document.getElementById('imageModal');
+        const modalImg = document.getElementById('modalImg');
+        const closeModal = document.getElementById('closeModal');
+
+        // 事件監聽
+        fileInput.addEventListener('change', handleFiles);
+        processBtn.addEventListener('click', startBatchProcessing);
+        exportBtn.addEventListener('click', exportToXLSX);
+        closeModal.addEventListener('click', () => imageModal.classList.add('hidden'));
+
+        function handleFiles(e) {
+            const uploaded = Array.from(e.target.files);
+            uploaded.forEach(file => {
+                files.push({
+                    id: crypto.randomUUID(),
+                    file: file,
+                    preview: URL.createObjectURL(file),
+                    status: 'pending'
+                });
+            });
+            renderFileList();
+            updateUI();
+        }
+
+        function renderFileList() {
+            if (files.length === 0) {
+                fileList.innerHTML = '<div class="p-10 text-center text-slate-400 text-sm">請選擇檔案上傳</div>';
+                return;
+            }
+
+            fileList.innerHTML = files.map(f => `
+                <div class="p-3 border-b flex items-center justify-between group hover:bg-slate-50">
+                    <div class="flex items-center gap-3 overflow-hidden">
+                        <div class="relative">
+                            <img src="${f.preview}" class="w-10 h-10 object-cover rounded border">
+                            ${f.status === 'completed' ? '<div class="absolute -top-1 -right-1 bg-green-500 text-white rounded-full p-0.5"><i data-lucide="check-circle-2" style="width:10px;height:10px;"></i></div>' : ''}
+                        </div>
+                        <div class="truncate">
+                            <p class="text-xs font-medium text-slate-700 truncate">${f.file.name}</p>
+                            <span class="text-[10px] text-slate-400">${(f.file.size / 1024 / 1024).toFixed(2)} MB</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        ${f.status === 'processing' ? '<i data-lucide="loader-2" class="w-4 h-4 text-blue-500 animate-spin"></i>' : ''}
+                        ${f.status === 'error' ? '<i data-lucide="alert-circle" class="w-4 h-4 text-red-500"></i>' : ''}
+                        <button onclick="removeFile('${f.id}')" class="p-1 text-slate-400 hover:text-red-500 transition-colors">
+                            <i data-lucide="trash-2" style="width:16px;height:16px;"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+            lucide.createIcons();
+            fileCount.innerText = `${files.length} 檔案`;
+        }
+
+        function updateUI() {
+            const hasPending = files.some(f => f.status === 'pending');
+            processBtn.classList.toggle('hidden', files.length === 0);
+            processBtn.disabled = isProcessing || !hasPending;
+            exportBtn.disabled = records.length === 0;
+        }
+
+        window.removeFile = (id) => {
+            files = files.filter(f => f.id !== id);
+            records = records.filter(r => r.id !== id);
+            renderFileList();
+            renderTable();
+            updateUI();
+        };
+
+        async function startBatchProcessing() {
+            isProcessing = true;
+            updateUI();
+
+            for (let i = 0; i < files.length; i++) {
+                if (files[i].status !== 'pending') continue;
+
+                files[i].status = 'processing';
+                renderFileList();
+
+                try {
+                    const result = await recognizeBill(files[i]);
+                    records.push(result);
+                    files[i].status = 'completed';
+                } catch (err) {
+                    files[i].status = 'error';
+                }
+                renderFileList();
+                renderTable();
+            }
+
+            isProcessing = false;
+            updateUI();
+        }
+
+        async function recognizeBill(fileObj) {
+            const base64 = await new Promise(resolve => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.readAsDataURL(fileObj.file);
+            });
+
+            const prompt = `你是一個電費單辨識專家。請從這張電費單圖片中提取以下資訊並以 JSON 格式回傳：
+            1. address: 判斷用電地址是「桃園市八德區友聯街72號1樓」還是「八德區瑞塘里友聯街62號」。
+            2. startDate: 計費期間的開始日期 (格式: YYYY-MM-DD)。
+            3. endDate: 計費期間的結束日期 (格式: YYYY-MM-DD)。
+            4. usage: 總用電度數 (數字)。
+            請嚴格遵守 JSON 格式，不要包含任何額外說明文字。`;
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: fileObj.file.type, data: base64 } }] }],
+                    generationConfig: { responseMimeType: "application/json" }
+                })
+            });
+
+            const data = await response.json();
+            const content = JSON.parse(data.candidates[0].content.parts[0].text);
+
+            return {
+                id: fileObj.id,
+                ...content,
+                preview: fileObj.preview,
+                timestamp: new Date(content.startDate).getTime()
+            };
+        }
+
+        function renderTable() {
+            const sorted = [...records].sort((a, b) => a.timestamp - b.timestamp);
+            
+            if (sorted.length === 0) {
+                resultBody.innerHTML = `<tr><td colspan="5" class="px-4 py-24 text-center text-slate-400 italic">尚未產生數據</td></tr>`;
+                return;
+            }
+
+            resultBody.innerHTML = sorted.map((r, i) => `
+                <tr class="hover:bg-blue-50/40 transition-colors">
+                    <td class="px-4 py-4 text-slate-400 font-mono text-xs">${i + 1}</td>
+                    <td class="px-4 py-4">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="map-pin" class="w-4 h-4 ${r.address.includes('72號') ? 'text-indigo-500' : 'text-emerald-500'}"></i>
+                            <span class="font-medium text-slate-700">${r.address.includes('72號') ? '友聯街72號' : '友聯街62號'}</span>
+                        </div>
+                        <span class="text-[10px] text-slate-400 block ml-6">${r.address}</span>
+                    </td>
+                    <td class="px-4 py-4 text-slate-600">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+                            <span>${r.startDate} ~ ${r.endDate}</span>
+                        </div>
+                    </td>
+                    <td class="px-4 py-4 text-slate-800">
+                        <span class="font-bold">${r.usage.toLocaleString()}</span> <span class="text-[10px] text-slate-400">度</span>
+                    </td>
+                    <td class="px-4 py-4 text-center">
+                        <button onclick="preview('${r.preview}')" class="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md border border-blue-200">
+                            <i data-lucide="eye" style="width:16px;height:16px;"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+            lucide.createIcons();
+            exportBtn.disabled = records.length === 0;
+        }
+
+        window.preview = (url) => {
+            modalImg.src = url;
+            imageModal.classList.remove('hidden');
+        };
+
+        function exportToXLSX() {
+            const groupA = records.filter(r => r.address.includes("72號")).sort((a,b) => a.timestamp - b.timestamp);
+            const groupB = records.filter(r => r.address.includes("62號")).sort((a,b) => a.timestamp - b.timestamp);
+
+            const data = [
+                ["友聯街(72號)", null, null, null, null, "友聯街(62號)"],
+                ["項次", "開始日期", "結束日期", "度數", null, "項次", "度數"]
+            ];
+
+            const maxLen = Math.max(groupA.length, groupB.length);
+            for (let i = 0; i < maxLen; i++) {
+                const a = groupA[i] || {};
+                const b = groupB[i] || {};
+                data.push([
+                    a.id ? i + 1 : null,
+                    a.startDate || null,
+                    a.endDate || null,
+                    a.usage || null,
+                    null,
+                    b.id ? i + 1 : null,
+                    b.usage || null
+                ]);
+            }
+
+            const ws = XLSX.utils.aoa_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Scope2_Electricity");
+            XLSX.writeFile(wb, `電力盤查辨識結果_${new Date().toLocaleDateString()}.xlsx`);
+        }
+    </script>
+</body>
+</html>
