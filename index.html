@@ -1,452 +1,328 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>大量科技排放計算系統 - 完整係數版</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
-        body { font-family: 'Noto Sans TC', sans-serif; }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-    </style>
-</head>
-<body class="bg-slate-50 text-slate-900">
-    <nav class="bg-white border-b border-slate-200 px-8 py-5 flex justify-between items-center shadow-sm sticky top-0 z-20">
-        <div class="flex items-center gap-3">
-            <div class="bg-indigo-600 p-2 rounded-xl shadow-indigo-200 shadow-lg">
-                <i data-lucide="trending-up" class="text-white w-5 h-5"></i>
-            </div>
-            <div>
-                <h1 class="text-xl font-black text-slate-800 tracking-tight">大量科技排放計算系統</h1>
-                <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Full Factors Database v5.2</p>
-            </div>
-        </div>
-        <div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl">
-            <button onclick="switchTab('dashboard')" id="btn-dashboard" class="tab-btn active flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black transition-all bg-white text-slate-900 shadow-md">
-                <i data-lucide="layout-dashboard" class="w-4 h-4"></i> <span>儀表板</span>
+import React, { useState, useEffect, useCallback } from 'react';
+import { Upload, FileText, Download, Trash2, CheckCircle2, Loader2, Eye, MapPin, Calendar, Zap, AlertCircle } from 'lucide-react';
+
+const API_KEY = ""; // 執行環境會自動注入
+const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
+
+// 引入 XLSX 函式庫
+const loadXLSX = () => {
+  return new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
+    script.onload = () => resolve(window.XLSX);
+    document.head.appendChild(script);
+  });
+};
+
+const App = () => {
+  const [files, setFiles] = useState([]);
+  const [records, setRecords] = useState([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null);
+
+  // 1. 處理檔案上傳
+  const handleFileUpload = (e) => {
+    const uploadedFiles = Array.from(e.target.files);
+    const newFiles = uploadedFiles.map(file => ({
+      id: crypto.randomUUID(),
+      file,
+      preview: URL.createObjectURL(file),
+      status: 'pending' 
+    }));
+    setFiles(prev => [...prev, ...newFiles]);
+  };
+
+  // 2. 呼叫 Gemini API 進行辨識
+  const recognizeBill = async (fileObj) => {
+    try {
+      const base64Data = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.readAsDataURL(fileObj.file);
+      });
+
+      const prompt = `
+        你是一個電費單辨識專家。請從這張電費單圖片中提取以下資訊並以 JSON 格式回傳：
+        1. address: 判斷用電地址是「桃園市八德區友聯街72號1樓」還是「八德區瑞塘里友聯街62號」。
+        2. startDate: 計費期間的開始日期 (格式: YYYY-MM-DD)。
+        3. endDate: 計費期間的結束日期 (格式: YYYY-MM-DD)。
+        4. usage: 總用電度數 (數字)。
+
+        請嚴格遵守 JSON 格式，不要包含任何額外說明文字。
+      `;
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              { inlineData: { mimeType: fileObj.file.type, data: base64Data } }
+            ]
+          }],
+          generationConfig: {
+            responseMimeType: "application/json",
+          }
+        })
+      });
+
+      if (!response.ok) throw new Error('API request failed');
+      const result = await response.json();
+      const data = JSON.parse(result.candidates[0].content.parts[0].text);
+      
+      return {
+        id: fileObj.id,
+        address: data.address,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        usage: parseInt(data.usage),
+        preview: fileObj.preview,
+        timestamp: new Date(data.startDate).getTime()
+      };
+    } catch (error) {
+      console.error("Recognition Error:", error);
+      throw error;
+    }
+  };
+
+  // 3. 批量處理辨識
+  const processFiles = async () => {
+    setIsProcessing(true);
+    const pendingFiles = files.filter(f => f.status === 'pending');
+    
+    for (const fileObj of pendingFiles) {
+      setFiles(prev => prev.map(f => f.id === fileObj.id ? { ...f, status: 'processing' } : f));
+      
+      try {
+        const record = await recognizeBill(fileObj);
+        setRecords(prev => [...prev, record]);
+        setFiles(prev => prev.map(f => f.id === fileObj.id ? { ...f, status: 'completed' } : f));
+      } catch (err) {
+        setFiles(prev => prev.map(f => f.id === fileObj.id ? { ...f, status: 'error' } : f));
+      }
+    }
+    setIsProcessing(false);
+  };
+
+  // 4. 排序邏輯 (依日期排序)
+  const sortedRecords = [...records].sort((a, b) => a.timestamp - b.timestamp);
+
+  // 5. 匯出 XLSX
+  const exportXLSX = async () => {
+    const XLSX = await loadXLSX();
+    
+    const groupA = sortedRecords.filter(r => r.address.includes("72號"));
+    const groupB = sortedRecords.filter(r => r.address.includes("62號"));
+
+    // 建立二維陣列資料
+    const data = [
+      ["友聯街(72號)", null, null, null, null, "友聯街(62號)"],
+      ["項次", "開始日期", "結束日期", "度數", null, "項次", "度數"]
+    ];
+
+    const maxLen = Math.max(groupA.length, groupB.length);
+    for (let i = 0; i < maxLen; i++) {
+      const a = groupA[i] || {};
+      const b = groupB[i] || {};
+      data.push([
+        a.id ? i + 1 : null,
+        a.startDate || null,
+        a.endDate || null,
+        a.usage || null,
+        null,
+        b.id ? i + 1 : null,
+        b.usage || null
+      ]);
+    }
+
+    // 建立活頁簿
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Scope2_Electricity");
+
+    // 檔案下載
+    XLSX.writeFile(wb, `大量科技_電力盤查匯出_${new Date().getFullYear()}.xlsx`);
+  };
+
+  const removeFile = (id) => {
+    setFiles(prev => prev.filter(f => f.id !== id));
+    setRecords(prev => prev.filter(r => r.id !== id));
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-900">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
+              <Zap className="text-yellow-500 fill-yellow-500" />
+              電力項目 AI 辨識系統
+            </h1>
+            <p className="text-slate-500 mt-1">自動辨識、排序並匯出 XLSX 盤查報表</p>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              onClick={exportXLSX}
+              disabled={records.length === 0}
+              className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all shadow-md active:scale-95"
+            >
+              <Download size={18} /> 匯出 XLSX
             </button>
-            <button onclick="switchTab('calculator')" id="btn-calculator" class="tab-btn flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black transition-all text-slate-500 hover:text-slate-800">
-                <i data-lucide="calculator" class="w-4 h-4"></i> <span>數據錄入</span>
-            </button>
-            <button onclick="switchTab('settings')" id="btn-settings" class="tab-btn flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black transition-all text-slate-500 hover:text-slate-800">
-                <i data-lucide="settings" class="w-4 h-4"></i> <span>係數資料庫</span>
-            </button>
-        </div>
-    </nav>
+          </div>
+        </header>
 
-    <main class="flex-1 overflow-y-auto p-8">
-        <!-- 儀表板頁面 -->
-        <div id="tab-dashboard" class="tab-content active max-w-6xl mx-auto space-y-8">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-5">
-                <div class="bg-white p-6 rounded-3xl shadow-sm border-l-8 border-slate-900 flex justify-between items-start">
-                    <div>
-                        <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">總排放量</h4>
-                        <div class="flex items-baseline gap-1"><span id="total-val" class="text-2xl font-black text-slate-800 tracking-tighter">0.0000</span><span class="text-[10px] font-bold text-slate-400">tCO2e</span></div>
-                    </div>
-                    <div class="p-3 bg-slate-50 rounded-2xl"><i data-lucide="file-text" class="text-slate-500"></i></div>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left Column */}
+          <div className="lg:col-span-4 space-y-6">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+              <label className="block w-full cursor-pointer">
+                <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-400 hover:bg-blue-50 transition-all group">
+                  <Upload className="mx-auto text-slate-400 group-hover:text-blue-500 mb-2" size={32} />
+                  <span className="text-slate-600 font-medium">上傳電費單圖片</span>
+                  <input type="file" multiple accept="image/*" className="hidden" onChange={handleFileUpload} />
                 </div>
-                <div class="bg-white p-6 rounded-3xl shadow-sm border-l-8 border-red-500 flex justify-between items-start">
-                    <div>
-                        <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">範疇一: 直接</h4>
-                        <div class="flex items-baseline gap-1"><span id="s1-val" class="text-2xl font-black text-slate-800 tracking-tighter">0.0000</span><span class="text-[10px] font-bold text-slate-400">tCO2e</span></div>
-                    </div>
-                    <div class="p-3 bg-slate-50 rounded-2xl"><i data-lucide="truck" class="text-red-500"></i></div>
-                </div>
-                <div class="bg-white p-6 rounded-3xl shadow-sm border-l-8 border-amber-500 flex justify-between items-start">
-                    <div>
-                        <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">範疇二: 能源</h4>
-                        <div class="flex items-baseline gap-1"><span id="s2-val" class="text-2xl font-black text-slate-800 tracking-tighter">0.0000</span><span class="text-[10px] font-bold text-slate-400">tCO2e</span></div>
-                    </div>
-                    <div class="p-3 bg-slate-50 rounded-2xl"><i data-lucide="zap" class="text-amber-500"></i></div>
-                </div>
-                <div class="bg-white p-6 rounded-3xl shadow-sm border-l-8 border-emerald-500 flex justify-between items-start">
-                    <div>
-                        <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">範疇三: 間接</h4>
-                        <div class="flex items-baseline gap-1"><span id="s3-val" class="text-2xl font-black text-slate-800 tracking-tighter">0.0000</span><span class="text-[10px] font-bold text-slate-400">tCO2e</span></div>
-                    </div>
-                    <div class="p-3 bg-slate-50 rounded-2xl"><i data-lucide="droplets" class="text-emerald-500"></i></div>
-                </div>
+              </label>
+
+              {files.length > 0 && (
+                <button
+                  onClick={processFiles}
+                  disabled={isProcessing || !files.some(f => f.status === 'pending')}
+                  className="w-full mt-4 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98]"
+                >
+                  {isProcessing ? <Loader2 className="animate-spin" /> : <FileText size={20} />}
+                  {isProcessing ? '正在辨識檔案...' : '開始批次辨識'}
+                </button>
+              )}
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[400px]">
-                <div class="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm flex flex-col h-full">
-                    <h3 class="font-black text-slate-700 mb-6 text-sm uppercase tracking-widest border-l-4 border-indigo-600 pl-4">排放結構分析</h3>
-                    <div class="flex-1 relative"><canvas id="pieChart"></canvas></div>
-                </div>
-                <div class="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm flex flex-col h-full">
-                    <h3 class="font-black text-slate-700 mb-6 text-sm uppercase tracking-widest border-l-4 border-indigo-600 pl-4">範疇強度對比</h3>
-                    <div class="flex-1 relative"><canvas id="barChart"></canvas></div>
-                </div>
-            </div>
-
-            <div id="dashboard-table-container"></div>
-        </div>
-
-        <!-- 數據錄入頁面 -->
-        <div id="tab-calculator" class="tab-content max-w-4xl mx-auto space-y-8">
-            <div class="bg-white p-10 rounded-[40px] shadow-sm border border-slate-200">
-                <h2 class="text-2xl font-black mb-8 text-slate-800 flex items-center gap-3">
-                    <i data-lucide="calculator" class="bg-indigo-600 text-white rounded-xl p-1.5 w-8 h-8"></i>
-                    錄入活動數據
-                </h2>
-                <form id="record-form" class="space-y-6">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div class="space-y-2">
-                            <label class="text-xs font-black text-slate-400 uppercase ml-1 tracking-widest">排放源項目</label>
-                            <select id="source-select" class="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 focus:border-indigo-500 outline-none transition-all font-bold cursor-pointer"></select>
-                        </div>
-                        <div class="space-y-2">
-                            <label class="text-xs font-black text-slate-400 uppercase ml-1 tracking-widest">數量 (活動數據)</label>
-                            <input type="number" id="input-value" step="any" required class="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 focus:border-indigo-500 outline-none transition-all font-mono font-bold text-lg text-indigo-600" placeholder="0.00">
-                        </div>
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-4 bg-slate-50 border-b border-slate-200 font-semibold text-slate-700 flex justify-between">
+                <span>上傳進度</span>
+                <span className="text-blue-600">{files.length} 檔案</span>
+              </div>
+              <div className="max-h-[350px] overflow-y-auto">
+                {files.map(file => (
+                  <div key={file.id} className="p-3 border-b flex items-center justify-between group hover:bg-slate-50">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className="relative">
+                        <img src={file.preview} className="w-10 h-10 object-cover rounded border" alt="preview" />
+                        {file.status === 'completed' && (
+                          <div className="absolute -top-1 -right-1 bg-green-500 text-white rounded-full p-0.5">
+                            <CheckCircle2 size={10} />
+                          </div>
+                        )}
+                      </div>
+                      <div className="truncate">
+                        <p className="text-xs font-medium text-slate-700 truncate">{file.file.name}</p>
+                        <span className="text-[10px] text-slate-400">{(file.file.size / 1024 / 1024).toFixed(2)} MB</span>
+                      </div>
                     </div>
-                    <div class="space-y-2">
-                        <label class="text-xs font-black text-slate-400 uppercase ml-1 tracking-widest">備註內容</label>
-                        <input id="input-note" class="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 focus:border-indigo-500 outline-none transition-all" placeholder="輸入說明事項...">
+                    <div className="flex items-center gap-2">
+                      {file.status === 'processing' && <Loader2 size={14} className="text-blue-500 animate-spin" />}
+                      {file.status === 'error' && <AlertCircle size={14} className="text-red-500" />}
+                      <button onClick={() => removeFile(file.id)} className="p-1 text-slate-400 hover:text-red-500 transition-colors">
+                        <Trash2 size={16} />
+                      </button>
                     </div>
-                    <button type="submit" class="w-full bg-slate-900 text-white font-black py-5 rounded-3xl hover:bg-black transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98]">
-                        <i data-lucide="plus" class="w-5 h-5"></i> 儲存紀錄
-                    </button>
-                </form>
+                  </div>
+                ))}
+                {files.length === 0 && (
+                  <div className="p-10 text-center text-slate-400 text-sm">請選擇檔案上傳</div>
+                )}
+              </div>
             </div>
-            <div id="calculator-table-container"></div>
-        </div>
+          </div>
 
-        <!-- 係數資料庫頁面 -->
-        <div id="tab-settings" class="tab-content max-w-full mx-auto space-y-4">
-            <div class="bg-white rounded-[32px] border border-slate-200 shadow-xl overflow-hidden">
-                <div class="px-10 py-8 bg-indigo-600 text-white flex justify-between items-center">
-                    <div>
-                        <h2 class="text-2xl font-black flex items-center gap-3"><i data-lucide="shield-check" class="w-7 h-7"></i> 28 項完整係數資料庫</h2>
-                        <p class="text-indigo-100 text-sm mt-1">您可以直接點擊數值欄位進行修改，系統會即時連動計算。</p>
-                    </div>
+          {/* Right Column */}
+          <div className="lg:col-span-8">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 h-full flex flex-col min-h-[550px]">
+              <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                <span className="font-semibold text-slate-700">自動排序結果</span>
+                <div className="flex gap-4 text-xs">
+                  <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-indigo-500"></div> 72號</span>
+                  <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> 62號</span>
                 </div>
-                <div class="overflow-x-auto custom-scrollbar">
-                    <table class="w-full text-left">
-                        <thead class="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
-                            <tr>
-                                <th class="px-8 py-6">名稱與單位</th>
-                                <th class="px-4 py-6">範疇</th>
-                                <th class="px-4 py-6 text-right">CO2/單一係數</th>
-                                <th class="px-4 py-6 text-right">CH4 係數</th>
-                                <th class="px-4 py-6 text-right">N2O 係數</th>
-                                <th class="px-4 py-6 text-right">GWP / 逸散率</th>
-                                <th class="px-4 py-6 text-right bg-indigo-50/50 text-indigo-600">總當量 (tCO2e/Unit)</th>
-                                <th class="px-8 py-6">來源說明</th>
-                            </tr>
-                        </thead>
-                        <tbody id="factors-body" class="divide-y divide-slate-50 text-[11px]"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </main>
-
-    <div id="toast" class="hidden fixed bottom-12 right-12 bg-slate-900 text-white px-8 py-5 rounded-[24px] shadow-2xl flex items-center gap-4 border border-slate-700 z-50 transition-all duration-300 transform translate-x-full">
-        <i data-lucide="check-circle-2" class="text-emerald-400 w-6 h-6"></i>
-        <span id="toast-msg" class="font-black tracking-tight"></span>
-    </div>
-
-    <script>
-        const COLORS = { scope1: '#ef4444', scope2: '#f59e0b', scope3: '#10b981' };
-        let records = [];
-        let myPieChart = null, myBarChart = null;
-
-        // --- 完整 28 項係數資料庫 ---
-        let factors = [
-            { id: 'gen_diesel', name: '緊急發電機', category: 'scope1', type: 'fuel', unit: '公秉', co2: 2.6792488757, ch4: 0.0001084716, n2o: 0.0000216943, desc: '固定 (E)' },
-            { id: 'car_gasoline', name: '車用汽油', category: 'scope1', type: 'fuel', unit: '公秉', co2: 2.2010417906, ch4: 0.0007940266, n2o: 0.0002540885, desc: '移動 (T)' },
-            { id: 'forklift_diesel', name: '堆高機', category: 'scope1', type: 'fuel', unit: '公秉', co2: 2.6792488757, ch4: 0.0001410131, n2o: 0.0001410131, desc: '移動 (T)' },
-            { id: 'cleaner_wurth', name: 'WURTH煞車盤清潔劑', category: 'scope1', type: 'direct_co2', unit: '公斤', co2: 1, ch4: 0, n2o: 0, desc: '逸散 (F)' },
-            { id: 'ext_co2_refill', name: 'CO2滅火器 (填充)', category: 'scope1', type: 'direct_co2', unit: '公噸', co2: 1, ch4: 0, n2o: 0, desc: '逸散 (F)' },
-            { id: 'ext_co2_all', name: 'CO2滅火器 (使用+填充)', category: 'scope1', type: 'direct_co2', unit: '公噸', co2: 1, ch4: 0, n2o: 0, desc: '逸散 (F)' },
-            { id: 'manure_water', name: '水肥(出勤人數)', category: 'scope1', type: 'ch4_only', unit: '人小時', ch4_factor: 0.3, desc: '生物處理' },
-            { id: 'car_ac_r134a', name: '(車用空調) R-134a', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.15, gwp: 1530.0, desc: '交通工具' },
-            { id: 'car_ac_r1234yf', name: '(車用空調) R-1234yf', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.15, gwp: 0.501, desc: '交通工具' },
-            { id: 'dehumid_r134a', name: '(除濕機) R-134a', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.003, gwp: 1530, desc: '小型設備' },
-            { id: 'dispenser_r134a', name: '(飲水機/冰箱) R-134a', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.003, gwp: 1530, desc: '小型設備' },
-            { id: 'dispenser_r600a', name: '(飲水機/冰箱) R-600a', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.003, gwp: 0, desc: '天然冷媒' },
-            { id: 'dispenser_r404a', name: '(飲水機/冰箱) R-404a', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.08, gwp: 4728, desc: '小型設備' },
-            { id: 'dryer_r134a', name: '(冷凍乾燥機) R-134a', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.08, gwp: 1530, desc: '生產設備' },
-            { id: 'dryer_r22', name: '(冷凍乾燥機) R-22', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.08, gwp: 1960, desc: '生產設備' },
-            { id: 'chiller_r410a', name: '(冰水機) R-410A', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.085, gwp: 2255.5, desc: '空調機組' },
-            { id: 'ac_r410a', name: '(冷氣) R-410A', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.055, gwp: 2255.5, desc: '空調設備' },
-            { id: 'ac_r32', name: '(冷氣) R-32', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.055, gwp: 771, desc: '空調設備' },
-            { id: 'ac_r22', name: '(冷氣) R-22', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.055, gwp: 1960, desc: '空調設備' },
-            { id: 'cool_r134a', name: '(冷卻機) R-134a', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.08, gwp: 1530.0, desc: '設備冷卻' },
-            { id: 'cool_r410a', name: '(冷卻機) R-410A', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.08, gwp: 2255.5, desc: '設備冷卻' },
-            { id: 'cool_r407c', name: '(冷卻機) R-407C', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.08, gwp: 1907.93, desc: '設備冷卻' },
-            { id: 'cool_r22_m', name: '(冷卻機) R-22', category: 'scope1', type: 'refrigerant', unit: '公噸', escapeRate: 0.08, gwp: 1960, desc: '設備冷卻' },
-            { id: 'electricity', name: '外購電力', category: 'scope2', type: 'single', unit: '千度', factor: 0.494, desc: '能源署 2023' },
-            { id: 'elec_up', name: '電力上游開採及輸配碳足跡', category: 'scope3', type: 'single', unit: '千度', factor: 0.1108, desc: '間接' },
-            { id: 'water', name: '自來水', category: 'scope3', type: 'single', unit: '千度', factor: 0.233, desc: '間接' },
-            { id: 'diesel_up_fix', name: '柴油上游排放(固定)-使用量', category: 'scope3', type: 'single', unit: '公秉', factor: 0.677, desc: '間接' },
-            { id: 'diesel_up_mov', name: '柴油上游排放(移動)-使用量', category: 'scope3', type: 'single', unit: '公秉', factor: 0.677, desc: '間接' },
-            { id: 'gasoline_up', name: '汽油上游排放', category: 'scope3', type: 'single', unit: '公秉', factor: 0.6078, desc: '間接' },
-        ];
-
-        window.onload = () => {
-            lucide.createIcons();
-            populateSelect();
-            renderFactors();
-            updateDashboard();
-        };
-
-        function switchTab(tabId) {
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('bg-white', 'text-slate-900', 'shadow-md'));
-            document.querySelectorAll('.tab-btn').forEach(el => el.classList.add('text-slate-500'));
-            
-            document.getElementById(`tab-${tabId}`).classList.add('active');
-            document.getElementById(`btn-${tabId}`).classList.add('bg-white', 'text-slate-900', 'shadow-md');
-            if (tabId === 'dashboard') updateDashboard();
-        }
-
-        function calculateEmission(r) {
-            const f = factors.find(it => it.id === r.sourceId);
-            if (!f) return 0;
-            if (f.type === 'fuel') return r.value * (f.co2 * 1 + f.ch4 * 27 + f.n2o * 273);
-            if (f.type === 'refrigerant') return r.value * f.escapeRate * f.gwp;
-            if (f.type === 'ch4_only') return r.value * f.ch4_factor * 27;
-            if (f.type === 'single') return r.value * f.factor;
-            return r.value * (f.co2 || 0);
-        }
-
-        function populateSelect() {
-            const select = document.getElementById('source-select');
-            select.innerHTML = '';
-            const groups = { scope1: '🔴 範疇一 (直接)', scope2: '🟡 範疇二 (電力)', scope3: '🟢 範疇三 (間接)' };
-            Object.keys(groups).forEach(key => {
-                const optgroup = document.createElement('optgroup');
-                optgroup.label = groups[key];
-                factors.filter(f => f.category === key).forEach(f => {
-                    const opt = new Option(`${f.name} (${f.unit})`, f.id);
-                    optgroup.appendChild(opt);
-                });
-                select.appendChild(optgroup);
-            });
-        }
-
-        function renderFactors() {
-            const body = document.getElementById('factors-body');
-            body.innerHTML = factors.map(f => {
-                let total = f.type === 'fuel' ? (f.co2 + f.ch4*27 + f.n2o*273) : 
-                            f.type === 'refrigerant' ? (f.escapeRate * f.gwp) :
-                            f.type === 'ch4_only' ? (f.ch4_factor * 27) : f.factor || f.co2;
-
-                return `
-                    <tr class="hover:bg-slate-50 transition-colors">
-                        <td class="px-8 py-5 font-bold text-slate-700">${f.name}<div class="text-[9px] text-slate-400 font-bold tracking-tighter uppercase">${f.unit}</div></td>
-                        <td class="px-4 py-5"><span class="px-2 py-0.5 rounded text-[9px] font-black uppercase ${f.category === 'scope1' ? 'bg-red-50 text-red-600' : f.category === 'scope2' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}">${f.category}</span></td>
-                        <td class="px-4 py-5 text-right">
-                            <input type="number" onchange="updateF('${f.id}','${f.type === 'single' ? 'factor' : 'co2'}',this.value)" value="${f.factor || f.co2 || 0}" step="any" class="w-20 text-right bg-transparent border-b border-transparent focus:border-indigo-500 hover:bg-white p-1 rounded">
-                        </td>
-                        <td class="px-4 py-5 text-right">
-                            ${f.ch4 !== undefined || f.ch4_factor !== undefined ? 
-                                `<input type="number" onchange="updateF('${f.id}','${f.ch4_factor !== undefined ? 'ch4_factor' : 'ch4'}',this.value)" value="${f.ch4 || f.ch4_factor || 0}" step="any" class="w-20 text-right bg-transparent border-b border-transparent focus:border-indigo-500 hover:bg-white p-1 rounded">` 
-                                : '-'}
-                        </td>
-                        <td class="px-4 py-5 text-right">
-                            ${f.n2o !== undefined ? 
-                                `<input type="number" onchange="updateF('${f.id}','n2o',this.value)" value="${f.n2o || 0}" step="any" class="w-20 text-right bg-transparent border-b border-transparent focus:border-indigo-500 hover:bg-white p-1 rounded">` 
-                                : '-'}
-                        </td>
-                        <td class="px-4 py-5 text-right">
-                            ${f.type === 'refrigerant' ? `
-                                <div class="flex flex-col items-end gap-1">
-                                    <div class="flex items-center gap-1">
-                                        <span class="text-[8px] text-slate-400 font-bold">GWP:</span>
-                                        <input type="number" onchange="updateF('${f.id}','gwp',this.value)" value="${f.gwp}" step="any" class="w-16 text-right text-[10px] bg-slate-100 border-none rounded px-1">
-                                    </div>
-                                    <div class="flex items-center gap-1">
-                                        <span class="text-[8px] text-slate-400 font-bold">RATE:</span>
-                                        <input type="number" onchange="updateF('${f.id}','escapeRate',this.value)" value="${f.escapeRate}" step="any" class="w-16 text-right text-[10px] bg-slate-100 border-none rounded px-1">
-                                    </div>
-                                </div>
-                            ` : '-'}
-                        </td>
-                        <td class="px-4 py-5 text-right font-black text-indigo-600 bg-indigo-50/20">${Number(total).toFixed(6)}</td>
-                        <td class="px-8 py-5 text-slate-400 text-[10px]">${f.desc}</td>
+              </div>
+              
+              <div className="flex-1 overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider border-b">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">項次</th>
+                      <th className="px-4 py-3 font-semibold">用電地址</th>
+                      <th className="px-4 py-3 font-semibold">計費期間</th>
+                      <th className="px-4 py-3 font-semibold">用電度數</th>
+                      <th className="px-4 py-3 font-semibold text-center">佐證</th>
                     </tr>
-                `;
-            }).join('');
-        }
+                  </thead>
+                  <tbody className="divide-y text-sm">
+                    {sortedRecords.map((record, index) => (
+                      <tr key={record.id} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="px-4 py-4 text-slate-400 font-mono text-xs">{index + 1}</td>
+                        <td className="px-4 py-4">
+                          <div className="flex items-center gap-2">
+                            <MapPin size={14} className={record.address.includes("72號") ? "text-indigo-500" : "text-emerald-500"} />
+                            <span className="font-medium text-slate-700 whitespace-nowrap">
+                              {record.address.includes("72號") ? "友聯街72號" : "友聯街62號"}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 block ml-5 truncate max-w-[150px]">{record.address}</span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex items-center gap-2 text-slate-600 whitespace-nowrap">
+                            <Calendar size={13} />
+                            <span>{record.startDate} ~ {record.endDate}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className="font-bold text-slate-800">{record.usage.toLocaleString()}</span>
+                          <span className="text-[10px] text-slate-400 ml-1">度</span>
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          <button 
+                            onClick={() => setPreviewImage(record.preview)}
+                            className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md transition-all shadow-sm border border-blue-200"
+                          >
+                            <Eye size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {sortedRecords.length === 0 && (
+                      <tr>
+                        <td colSpan="5" className="px-4 py-24 text-center">
+                          <div className="text-slate-300 mb-2 italic">尚未產生數據</div>
+                          <p className="text-xs text-slate-400 font-light">辨識完成後，資料會自動在此依日期排序</p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-        function updateF(id, field, val) {
-            const factor = factors.find(f => f.id === id);
-            if (factor) {
-                factor[field] = parseFloat(val);
-                renderFactors();
-                updateDashboard();
-                triggerToast('數據庫係數與 GWP 已同步更新');
-            }
-        }
+      {/* Preview Modal */}
+      {previewImage && (
+        <div className="fixed inset-0 bg-slate-900/90 z-50 flex items-center justify-center p-4 backdrop-blur-md" onClick={() => setPreviewImage(null)}>
+          <div className="relative max-w-5xl w-full bg-white rounded-2xl p-2 shadow-2xl animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+            <button className="absolute top-4 right-4 bg-white/20 hover:bg-white/40 text-white p-2 rounded-full backdrop-blur-md transition-all z-10" onClick={() => setPreviewImage(null)}>
+              <Trash2 size={20} className="rotate-45" />
+            </button>
+            <img src={previewImage} className="w-full h-auto max-h-[80vh] object-contain rounded-xl" alt="Full Evidence" />
+            <div className="p-4 flex justify-between items-center text-slate-500">
+              <span className="text-sm font-medium italic">電費單原始影本 (佐證資料)</span>
+              <button onClick={() => setPreviewImage(null)} className="text-xs bg-slate-100 px-3 py-1 rounded-full hover:bg-slate-200">關閉預覽</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
-        function updateDashboard() {
-            let s1 = 0, s2 = 0, s3 = 0;
-            records.forEach(r => {
-                const f = factors.find(it => it.id === r.sourceId);
-                const emission = calculateEmission(r);
-                if (f.category === 'scope1') s1 += emission;
-                else if (f.category === 'scope2') s2 += emission;
-                else s3 += emission;
-            });
-
-            const total = s1 + s2 + s3;
-            document.getElementById('total-val').innerText = total.toFixed(4);
-            document.getElementById('s1-val').innerText = s1.toFixed(4);
-            document.getElementById('s2-val').innerText = s2.toFixed(4);
-            document.getElementById('s3-val').innerText = s3.toFixed(4);
-
-            renderTable('dashboard-table-container', records, false);
-            updateCharts(s1, s2, s3);
-        }
-
-        function updateCharts(s1, s2, s3) {
-            const ctxPie = document.getElementById('pieChart').getContext('2d');
-            const ctxBar = document.getElementById('barChart').getContext('2d');
-            const data = [s1, s2, s3];
-            const colors = [COLORS.scope1, COLORS.scope2, COLORS.scope3];
-
-            if (myPieChart) myPieChart.destroy();
-            myPieChart = new Chart(ctxPie, {
-                type: 'doughnut',
-                data: { labels: ['範疇一', '範疇二', '範疇三'], datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] },
-                options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, cutout: '70%' }
-            });
-
-            if (myBarChart) myBarChart.destroy();
-            myBarChart = new Chart(ctxBar, {
-                type: 'bar',
-                data: { labels: ['範疇一', '範疇二', '範疇三'], datasets: [{ data, backgroundColor: colors, borderRadius: 12 }] },
-                options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { display: false } }, x: { grid: { display: false } } } }
-            });
-        }
-
-        function renderTable(containerId, data, showDelete = false) {
-            const container = document.getElementById(containerId);
-            const html = `
-                <div class="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden mt-8">
-                    <div class="px-10 py-6 border-b border-slate-100 bg-slate-50/30 flex justify-between items-center">
-                        <h3 class="font-black text-slate-800 flex items-center gap-2"><i data-lucide="list"></i> 紀錄清單 (${data.length})</h3>
-                        ${!showDelete ? `<button onclick="exportToExcel()" class="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-700">匯出報告 (對齊 CSV 格式)</button>` : ''}
-                    </div>
-                    <table class="w-full text-left text-xs">
-                        <thead class="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b">
-                            <tr><th class="px-10 py-4">日期</th><th class="px-6 py-4">項目</th><th class="px-6 py-4 text-right">數量</th><th class="px-6 py-4 text-right">當量 (tCO2e)</th><th class="px-10 py-4 text-right">操作</th></tr>
-                        </thead>
-                        <tbody class="divide-y">${data.map(r => {
-                            const f = factors.find(it => it.id === r.sourceId);
-                            return `<tr>
-                                <td class="px-10 py-4 font-bold">${r.date}</td>
-                                <td class="px-6 py-4">${f.name}</td>
-                                <td class="px-6 py-4 text-right font-mono">${r.value} ${f.unit}</td>
-                                <td class="px-6 py-4 text-right font-mono font-black text-indigo-600">${calculateEmission(r).toFixed(4)}</td>
-                                <td class="px-10 py-4 text-right">${showDelete ? `<button onclick="deleteRecord(${r.id})" class="text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : r.note || ''}</td>
-                            </tr>`;
-                        }).join('')}</tbody>
-                    </table>
-                </div>
-            `;
-            container.innerHTML = html;
-            lucide.createIcons();
-        }
-
-        document.getElementById('record-form').onsubmit = (e) => {
-            e.preventDefault();
-            const sourceId = document.getElementById('source-select').value;
-            const value = parseFloat(document.getElementById('input-value').value);
-            const note = document.getElementById('input-note').value;
-            records.unshift({ id: Date.now(), sourceId, value, note, date: new Date().toLocaleDateString() });
-            document.getElementById('input-value').value = '';
-            document.getElementById('input-note').value = '';
-            triggerToast('數據錄入成功');
-            renderTable('calculator-table-container', records, true);
-        };
-
-        function deleteRecord(id) {
-            records = records.filter(r => r.id !== id);
-            renderTable('calculator-table-container', records, true);
-            triggerToast('紀錄已刪除');
-        }
-
-        function triggerToast(msg) {
-            const t = document.getElementById('toast');
-            document.getElementById('toast-msg').innerText = msg;
-            t.classList.remove('hidden');
-            setTimeout(() => t.style.transform = 'translateX(0)', 10);
-            setTimeout(() => { t.style.transform = 'translateX(100%)'; setTimeout(() => t.classList.add('hidden'), 300); }, 3000);
-        }
-
-        // --- 匯出 Excel ---
-        function exportToExcel() {
-            if (records.length === 0) return triggerToast('無資料可匯出');
-            
-            const excelData = records.map(r => {
-                const f = factors.find(it => it.id === r.sourceId);
-                const emission = calculateEmission(r);
-                
-                let co2_val = 0, ch4_val = 0, n2o_val = 0, hfcs_val = 0;
-                let co2_h = 0, ch4_h = 0, n2o_h = 0, hfcs_h = 0;
-
-                if (f.type === 'fuel') {
-                    co2_val = f.co2; co2_h = r.value * f.co2;
-                    ch4_val = f.ch4; ch4_h = r.value * f.ch4 * 27;
-                    n2o_val = f.n2o; n2o_h = r.value * f.n2o * 273;
-                } else if (f.type === 'refrigerant') {
-                    hfcs_val = f.escapeRate;
-                    hfcs_h = r.value * f.escapeRate * f.gwp;
-                } else if (f.type === 'ch4_only') {
-                    ch4_val = f.ch4_factor; ch4_h = r.value * f.ch4_factor * 27;
-                } else {
-                    co2_val = f.factor || f.co2; co2_h = r.value * (f.factor || f.co2);
-                }
-
-                return {
-                    '範疇/類別項目': f.category === 'scope1' ? '範疇1' : f.category === 'scope2' ? '範疇2' : '類別3',
-                    '原燃物料或產品名稱': f.name,
-                    '排放型式': f.desc,
-                    '活動數據': r.value,
-                    '活動數據單位': f.unit,
-                    'CO2係數': co2_val.toFixed(10),
-                    'GWP_CO2': 1,
-                    'CO2合計': co2_h.toFixed(6),
-                    'CH4係數': ch4_val.toFixed(10),
-                    'GWP_CH4': 27,
-                    'CH4合計': ch4_h.toFixed(6),
-                    'N2O係數': n2o_val.toFixed(10),
-                    'GWP_N2O': 273,
-                    'N2O合計': n2o_h.toFixed(6),
-                    'HFCS平均逸散率': hfcs_val,
-                    'GWP_HFCS': f.type === 'refrigerant' ? f.gwp : '',
-                    'HFCS合計': hfcs_h.toFixed(6),
-                    '單一排放源排放當量小計(CO2e)': emission.toFixed(6),
-                    'CO2(檢查表)': co2_h > 0 ? 'V' : '',
-                    'CH4(檢查表)': ch4_h > 0 ? 'V' : '',
-                    'N2O(檢查表)': n2o_h > 0 ? 'V' : '',
-                    'HFCS(檢查表)': hfcs_h > 0 ? 'V' : '',
-                    'PFCS(檢查表)': '',
-                    'SF6(檢查表)': '',
-                    'NF3(檢查表)': '',
-                    '備註': r.note
-                };
-            });
-
-            const ws = XLSX.utils.json_to_sheet(excelData);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Inventory_Report");
-            XLSX.writeFile(wb, "大量科技排放匯出報告.xlsx");
-            triggerToast('已導出報表 (已移除國際計算方式)');
-        }
-    </script>
-</body>
-</html>
+export default App;
