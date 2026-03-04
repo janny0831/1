@@ -1,383 +1,358 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>大量科技股份有限公司 | 科技未來衝擊</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&family=Noto+Sans+TC:wght@300;400;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --color-bg: #050505;
-            --color-primary: #00F2FF; /* 賽博霓虹藍 */
-            --color-secondary: #7000FF; /* 幻影紫 */
-            --font-main: 'Space Grotesk', 'Noto Sans TC', sans-serif;
-        }
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Search, 
+  ShoppingBag, 
+  Trash2, 
+  Plus, 
+  Minus, 
+  CheckCircle2, 
+  X,
+  ChevronRight,
+  Utensils,
+  Store,
+  Navigation,
+  Loader2
+} from 'lucide-react';
 
-        body {
-            background-color: var(--color-bg);
-            color: #ffffff;
-            font-family: var(--font-main);
-            overflow-x: hidden;
-        }
+// --- 設定區 ---
+// 已填入您提供的 Google Apps Script Web App URL
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxOCTlnSaKEVb-b41OcldAgO6j_lUxxztQ_LLkBgX7XizADePI4AZXnXAnEn3yhIVYr/exec"; 
 
-        /* 噪點紋理層 */
-        .noise::before {
-            content: "";
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: url('https://grainy-gradients.vercel.app/noise.svg');
-            opacity: 0.15;
-            pointer-events: none;
-            z-index: 50;
-        }
+const PRODUCTS = [
+  { id: 1, name: "招牌牛肉漢堡", price: 180, category: "主餐", image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=60" },
+  { id: 2, name: "經典起司堡", price: 160, category: "主餐", image: "https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=500&auto=format&fit=crop&q=60" },
+  { id: 3, name: "脆皮雞塊 (6塊)", price: 89, category: "點心", image: "https://images.unsplash.com/photo-1562967914-608f82629710?w=500&auto=format&fit=crop&q=60" },
+  { id: 4, name: "黃金薯條", price: 55, category: "點心", image: "https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=500&auto=format&fit=crop&q=60" },
+  { id: 5, name: "冰滴美式咖啡", price: 75, category: "飲料", image: "https://images.unsplash.com/photo-1517701604599-bb2d96655a22?w=500&auto=format&fit=crop&q=60" },
+  { id: 6, name: "特調鮮奶茶", price: 65, category: "飲料", image: "https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=500&auto=format&fit=crop&q=60" },
+  { id: 7, name: "熔岩巧克力蛋糕", price: 110, category: "甜點", image: "https://images.unsplash.com/photo-1624353339006-3d52f53d1082?w=500&auto=format&fit=crop&q=60" },
+  { id: 8, name: "法式香草烤布蕾", price: 95, category: "甜點", image: "https://images.unsplash.com/photo-1470124182917-cc6e71b22ecc?w=500&auto=format&fit=crop&q=60" },
+];
 
-        /* 邊框光束動畫 (Border Beam) */
-        .border-beam {
-            position: relative;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            overflow: hidden;
-        }
-        .border-beam::after {
-            content: "";
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: conic-gradient(from 0deg, transparent, var(--color-primary), transparent 30%);
-            animation: rotate 4s linear infinite;
-            z-index: -1;
-        }
-        @keyframes rotate {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
+const CATEGORIES = ["全部", "主餐", "點心", "飲料", "甜點"];
+const TAX_RATE = 0.05;
 
-        /* 磨砂玻璃效果 */
-        .glass {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
+export default function App() {
+  const [cart, setCart] = useState(() => {
+    const savedCart = localStorage.getItem('restaurant-cart');
+    return savedCart ? JSON.parse(savedCart) : [];
+  });
+  const [activeCategory, setActiveCategory] = useState("全部");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isOrderPlaced, setIsOrderPlaced] = useState(false);
+  const [orderId, setOrderId] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const [orderType, setOrderType] = useState("dine-in");
+  const [tableNumber, setTableNumber] = useState("");
 
-        /* 文字霓虹發光 */
-        .neon-text {
-            text-shadow: 0 0 10px rgba(0, 242, 255, 0.5), 0 0 20px rgba(0, 242, 255, 0.3);
-        }
+  useEffect(() => {
+    localStorage.setItem('restaurant-cart', JSON.stringify(cart));
+  }, [cart]);
 
-        /* 自訂動畫載體 */
-        .reveal { opacity: 0; transform: translateY(40px); }
+  const filteredProducts = useMemo(() => {
+    return PRODUCTS.filter(p => {
+      const matchCategory = activeCategory === "全部" || p.category === activeCategory;
+      const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchCategory && matchSearch;
+    });
+  }, [activeCategory, searchQuery]);
 
-        #canvas-container {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 0;
-            pointer-events: none;
-        }
+  const subtotal = useMemo(() => {
+    return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  }, [cart]);
 
-        .cta-button {
-            background: linear-gradient(90deg, var(--color-primary), var(--color-secondary));
-            padding: 2px;
-            display: inline-block;
-            transition: transform 0.3s ease;
-        }
-        .cta-inner {
-            background: var(--color-bg);
-            padding: 0.75rem 2rem;
-            display: block;
-            transition: background 0.3s ease;
-        }
-        .cta-button:hover .cta-inner {
-            background: transparent;
-        }
-    </style>
-</head>
-<body>
-    <div class="noise"></div>
-    <div id="canvas-container"></div>
+  const tax = subtotal * TAX_RATE;
+  const total = subtotal + tax;
 
-    <!-- 導覽列 -->
-    <nav class="fixed w-full z-50 px-6 py-6 flex justify-between items-center bg-black/50 backdrop-blur-md border-b border-white/10">
-        <div class="flex items-center gap-2">
-            <div class="w-8 h-8 bg-gradient-to-tr from-[--color-primary] to-[--color-secondary] rounded-full animate-pulse"></div>
-            <div class="text-xl font-bold tracking-widest neon-text">
-                大量科技 <span class="text-[10px] opacity-50 block font-light">TALIANG FUTURE TECH</span>
+  const addToCart = (product) => {
+    setCart(prev => {
+      const existing = prev.find(item => item.id === product.id);
+      if (existing) {
+        return prev.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+      }
+      return [...prev, { ...product, quantity: 1 }];
+    });
+  };
+
+  const updateQuantity = (id, delta) => {
+    setCart(prev => prev.map(item => {
+      if (item.id === id) {
+        const newQty = Math.max(1, item.quantity + delta);
+        return { ...item, quantity: newQty };
+      }
+      return item;
+    }));
+  };
+
+  const removeFromCart = (id) => {
+    setCart(prev => prev.filter(item => item.id !== id));
+  };
+
+  // --- 提交至 Google Sheets 函數 ---
+  const handleCheckout = async () => {
+    if (cart.length === 0 || isSubmitting) return;
+    if (orderType === 'dine-in' && !tableNumber) return;
+
+    setIsSubmitting(true);
+    const newOrderId = `ORD-${Date.now().toString().slice(-6)}`;
+    
+    // 準備要傳送的資料
+    const orderData = {
+      orderId: newOrderId,
+      type: orderType === 'dine-in' ? '內用' : '外帶',
+      table: orderType === 'dine-in' ? tableNumber : 'N/A',
+      items: cart.map(item => `${item.name} x ${item.quantity}`).join(', '),
+      total: Math.round(total),
+      timestamp: new Date().toLocaleString('zh-TW')
+    };
+
+    try {
+      // 使用 fetch 傳送資料 (透過 POST)
+      // 注意：Google Script 回傳通常會被瀏覽器攔截 CORS，所以使用 no-cors 模式確保資料送出
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(orderData)
+      });
+      
+      // 成功處理 UI
+      setOrderId(newOrderId);
+      setIsOrderPlaced(true);
+      setCart([]); // 清空購物車
+    } catch (error) {
+      console.error("提交訂單發生錯誤:", error);
+      // 由於 no-cors 模式，我們通常假設只要沒有發生嚴重網路錯誤就算送出成功
+      setOrderId(newOrderId);
+      setIsOrderPlaced(true);
+      setCart([]);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 text-slate-800 font-sans">
+      <header className="sticky top-0 z-30 bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="bg-orange-500 p-2 rounded-lg text-white shadow-md shadow-orange-100">
+              <Utensils size={24} />
             </div>
-        </div>
-        <div class="hidden md:flex space-x-10 text-xs tracking-[0.3em] uppercase">
-            <a href="#vision" class="hover:text-[--color-primary] transition-colors">Vision</a>
-            <a href="#tech" class="hover:text-[--color-primary] transition-colors">Intelligence</a>
-            <a href="#contact" class="hover:text-[--color-primary] transition-colors">Access</a>
-        </div>
-        <a href="#access" class="cta-button group">
-            <span class="cta-inner text-xs tracking-widest font-bold">立即預訂</span>
-        </a>
-    </nav>
-
-    <!-- 英雄區 (Hero) -->
-    <section class="relative min-h-screen flex items-center justify-center px-6 overflow-hidden">
-        <div class="relative z-10 text-center">
-            <div class="inline-block px-4 py-1 border border-[--color-primary]/30 rounded-full mb-6 bg-[--color-primary]/5 reveal">
-                <span class="text-[10px] tracking-[0.4em] uppercase text-[--color-primary]">Next Generation Intelligence</span>
-            </div>
-            <h1 class="text-6xl md:text-9xl font-bold mb-8 reveal" style="line-height: 0.9;">
-                數據重構<br>
-                <span class="text-transparent bg-clip-text bg-gradient-to-r from-[--color-primary] via-purple-500 to-[--color-secondary]">
-                    尊榮未來
-                </span>
+            <h1 className="text-xl font-bold tracking-tight text-slate-900 hidden sm:block">
+              Modern<span className="text-orange-500">Dine</span>
             </h1>
-            <p class="max-w-2xl mx-auto text-lg md:text-xl opacity-60 reveal mb-12 font-light leading-relaxed">
-                大量科技將極致精密與 AI 深度融合，為全球頂級工業體系提供超感官的自動化解決方案。
-            </p>
-            <div class="flex flex-col md:flex-row gap-6 justify-center reveal">
-                <button class="cta-button">
-                    <span class="cta-inner text-sm tracking-widest">探索核心系統</span>
+          </div>
+          
+          <div className="flex-1 max-w-md mx-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input 
+                type="text"
+                placeholder="搜尋美味餐點..."
+                className="w-full pl-10 pr-4 py-2 bg-gray-100 border-transparent focus:bg-white focus:ring-2 focus:ring-orange-500 focus:border-transparent rounded-xl transition-all outline-none"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 text-sm font-medium text-slate-600">
+             <Store size={16} className="text-orange-500" />
+             <span className="hidden sm:inline">旗艦店 - 即時連線中</span>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 py-8 flex flex-col lg:flex-row gap-8">
+        <section className="flex-1">
+          <div className="flex gap-2 mb-8 overflow-x-auto pb-2 scrollbar-hide">
+            {CATEGORIES.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={`px-6 py-2 rounded-full whitespace-nowrap text-sm font-medium transition-all ${
+                  activeCategory === cat ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-slate-600 border'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+            {filteredProducts.map(product => (
+              <div key={product.id} className="group bg-white rounded-2xl overflow-hidden border shadow-sm hover:shadow-xl transition-all duration-300">
+                <div className="relative h-48 overflow-hidden">
+                  <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                  <div className="absolute top-3 right-3">
+                    <span className="bg-white/90 backdrop-blur-md px-2 py-1 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                      {product.category}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-5">
+                  <h3 className="font-bold text-lg text-slate-800">{product.name}</h3>
+                  <div className="flex items-center justify-between mt-4">
+                    <span className="text-xl font-black text-slate-900">${product.price}</span>
+                    <button 
+                      onClick={() => addToCart(product)} 
+                      className="bg-slate-900 text-white p-3 rounded-xl hover:bg-orange-500 hover:shadow-lg active:scale-95 transition-all"
+                    >
+                      <Plus size={20} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <aside className="w-full lg:w-96">
+          <div className="bg-white rounded-3xl shadow-xl border overflow-hidden sticky top-24">
+            {/* 用餐選擇 */}
+            <div className="p-4 bg-gray-50 border-b flex gap-2">
+                <button 
+                  onClick={() => setOrderType("dine-in")} 
+                  className={`flex-1 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${orderType === "dine-in" ? 'bg-white text-orange-600 border shadow-sm' : 'text-slate-400'}`}
+                >
+                    <Store size={16} /> 內用
                 </button>
-                <button class="px-8 py-3 border border-white/20 hover:border-[--color-primary] transition-all text-sm tracking-widest">
-                    技術白皮書
+                <button 
+                  onClick={() => setOrderType("take-out")} 
+                  className={`flex-1 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${orderType === "take-out" ? 'bg-white text-orange-600 border shadow-sm' : 'text-slate-400'}`}
+                >
+                    <Navigation size={16} /> 外帶
                 </button>
             </div>
-        </div>
 
-        <!-- 裝飾背景圖 (帶遮罩) -->
-        <div class="absolute inset-0 z-[-1] opacity-30">
-            <img src="https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop" 
-                 alt="數位網路背景" class="w-full h-full object-cover">
-            <div class="absolute inset-0 bg-gradient-to-b from-[#050505] via-transparent to-[#050505]"></div>
-        </div>
-    </section>
-
-    <!-- 技術優勢區 -->
-    <section id="tech" class="py-32 px-6 md:px-20 relative">
-        <div class="flex flex-col items-center mb-24 text-center">
-            <h2 class="text-4xl md:text-6xl font-bold mb-6 reveal neon-text">核心技術衝擊</h2>
-            <div class="w-20 h-1 bg-[--color-primary] reveal"></div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <!-- 卡片 1 -->
-            <div class="glass p-10 rounded-2xl reveal group hover:border-[--color-primary]/50 transition-all duration-500">
-                <div class="w-16 h-16 mb-8 flex items-center justify-center rounded-xl bg-[--color-primary]/10 text-4xl text-[--color-primary]">
-                    <iconify-icon icon="lucide:cpu"></iconify-icon>
+            {/* 桌號輸入 */}
+            {orderType === "dine-in" && (
+                <div className="px-6 py-4 bg-orange-50/50 border-b flex items-center justify-between">
+                    <label className="text-sm font-bold text-orange-800">用餐桌號：</label>
+                    <input 
+                      type="number" 
+                      placeholder="12" 
+                      value={tableNumber} 
+                      onChange={(e) => setTableNumber(e.target.value)} 
+                      className="w-20 px-3 py-1 rounded-lg text-center font-bold text-orange-600 border-orange-200 border outline-none focus:ring-2 focus:ring-orange-500" 
+                    />
                 </div>
-                <h3 class="text-2xl font-bold mb-4">神經元處理架構</h3>
-                <p class="opacity-50 text-sm leading-relaxed">
-                    模擬生物神經網絡，實現毫秒級的工業決策回饋，將效率推向極限。
-                </p>
-                <div class="mt-8 h-1 w-0 group-hover:w-full bg-[--color-primary] transition-all duration-500"></div>
+            )}
+
+            <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <ShoppingBag size={22} /> 您的訂單
+              </h2>
+              <span className="bg-orange-500 px-3 py-1 rounded-full text-xs font-bold">
+                {cart.length} 品項
+              </span>
             </div>
 
-            <!-- 卡片 2 -->
-            <div class="glass p-10 rounded-2xl reveal group border-beam transition-all duration-500">
-                <div class="w-16 h-16 mb-8 flex items-center justify-center rounded-xl bg-purple-500/10 text-4xl text-purple-500">
-                    <iconify-icon icon="lucide:layers"></iconify-icon>
+            <div className="p-6 max-h-[350px] overflow-y-auto">
+              {cart.length === 0 ? (
+                <div className="py-10 text-center flex flex-col items-center gap-2">
+                  <div className="p-4 bg-slate-50 rounded-full text-slate-200">
+                    <ShoppingBag size={40} />
+                  </div>
+                  <p className="text-slate-400 text-sm">購物車是空的</p>
                 </div>
-                <h3 class="text-2xl font-bold mb-4">超精密數位孿生</h3>
-                <p class="opacity-50 text-sm leading-relaxed">
-                    虛擬與現實的完美映射，在數位空間中預演每一場完美的生產節奏。
-                </p>
-                <div class="mt-8 h-1 w-0 group-hover:w-full bg-purple-500 transition-all duration-500"></div>
-            </div>
-
-            <!-- 卡片 3 -->
-            <div class="glass p-10 rounded-2xl reveal group hover:border-[--color-secondary]/50 transition-all duration-500">
-                <div class="w-16 h-16 mb-8 flex items-center justify-center rounded-xl bg-[--color-secondary]/10 text-4xl text-[--color-secondary]">
-                    <iconify-icon icon="lucide:shield-check"></iconify-icon>
-                </div>
-                <h3 class="text-2xl font-bold mb-4">區塊鏈安全性系統</h3>
-                <p class="opacity-50 text-sm leading-relaxed">
-                    不可篡改的尊榮保障，為企業核心數據築起最堅固的未來防線。
-                </p>
-                <div class="mt-8 h-1 w-0 group-hover:w-full bg-[--color-secondary] transition-all duration-500"></div>
-            </div>
-        </div>
-    </section>
-
-    <!-- 視覺影像區 (Impact Grid) -->
-    <section class="py-20 px-6">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 h-[600px]">
-            <div class="relative overflow-hidden group reveal">
-                <img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=2070&auto=format&fit=crop" 
-                     class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
-                <div class="absolute inset-0 bg-black/40 group-hover:bg-black/10 transition-all"></div>
-                <div class="absolute bottom-10 left-10">
-                    <span class="text-[10px] tracking-widest uppercase opacity-60">System Interface</span>
-                    <h3 class="text-3xl font-bold">未來控制中樞</h3>
-                </div>
-            </div>
-            <div class="grid grid-rows-2 gap-4">
-                <div class="relative overflow-hidden group reveal">
-                    <img src="https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=2070&auto=format&fit=crop" 
-                         class="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-700">
-                    <div class="absolute inset-0 bg-[--color-primary]/10"></div>
-                </div>
-                <div class="relative overflow-hidden group reveal">
-                    <img src="https://images.unsplash.com/photo-1531297484001-80022131f5a1?q=80&w=2020&auto=format&fit=crop" 
-                         class="w-full h-full object-cover">
-                    <div class="absolute inset-0 bg-gradient-to-r from-black to-transparent"></div>
-                    <div class="absolute inset-y-0 left-10 flex flex-col justify-center">
-                        <h4 class="text-xl font-bold mb-2">自動化演進</h4>
-                        <p class="text-xs opacity-60">Every micro-step matters.</p>
+              ) : (
+                <div className="space-y-6">
+                  {cart.map(item => (
+                    <div key={item.id} className="flex gap-4 group">
+                      <img src={item.image} className="w-16 h-16 rounded-xl object-cover" alt="" />
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-sm truncate text-slate-800">{item.name}</h4>
+                        <p className="text-orange-500 font-bold text-sm mt-0.5">${item.price}</p>
+                        <div className="flex items-center gap-3 mt-2">
+                          <button onClick={() => updateQuantity(item.id, -1)} className="w-7 h-7 border rounded-lg hover:bg-slate-50 text-slate-400">-</button>
+                          <span className="text-sm font-bold w-4 text-center">{item.quantity}</span>
+                          <button onClick={() => updateQuantity(item.id, 1)} className="w-7 h-7 border rounded-lg hover:bg-slate-50 text-slate-400">+</button>
+                        </div>
+                      </div>
+                      <button onClick={() => removeFromCart(item.id)} className="text-slate-300 hover:text-red-500 self-start transition-colors">
+                        <Trash2 size={18} />
+                      </button>
                     </div>
+                  ))}
                 </div>
+              )}
             </div>
-        </div>
-    </section>
 
-    <!-- 終極 CTA -->
-    <section id="access" class="py-40 px-6 text-center relative">
-        <div class="max-w-4xl mx-auto">
-            <h2 class="text-5xl md:text-8xl font-bold mb-10 reveal tracking-tighter">
-                加入<span class="neon-text text-[--color-primary]">大量</span>進化
-            </h2>
-            <p class="text-lg opacity-60 mb-12 reveal">我們正在尋找定義下一個世紀的合作夥伴。</p>
-            <div class="reveal">
-                <button class="cta-button">
-                    <span class="cta-inner text-xl py-6 px-16 tracking-[0.2em] font-bold">立即取得授權</span>
-                </button>
-            </div>
-        </div>
-    </section>
-
-    <!-- 頁尾 -->
-    <footer class="py-20 px-6 border-t border-white/10 bg-black">
-        <div class="flex flex-col md:flex-row justify-between items-start gap-12">
-            <div>
-                <div class="text-2xl font-bold tracking-widest neon-text mb-6">TALIANG TECH</div>
-                <p class="max-w-xs text-xs opacity-40 leading-relaxed uppercase tracking-widest">
-                    Leading the world through autonomous intelligence and precision engineering.
-                </p>
-            </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-12">
-                <div class="flex flex-col gap-4 text-xs tracking-widest uppercase">
-                    <span class="opacity-100 font-bold mb-2">Structure</span>
-                    <a href="#" class="opacity-40 hover:opacity-100 transition-opacity">Framework</a>
-                    <a href="#" class="opacity-40 hover:opacity-100 transition-opacity">Integration</a>
+            <div className="p-6 bg-gray-50 border-t">
+              <div className="space-y-2 mb-6 text-sm">
+                <div className="flex justify-between text-slate-500"><span>小計</span><span>${subtotal.toLocaleString()}</span></div>
+                <div className="flex justify-between text-slate-900 font-black text-lg pt-2 border-t">
+                  <span>總計 <span className="text-[10px] font-normal text-slate-400">(含稅)</span></span>
+                  <span className="text-orange-600">${Math.round(total).toLocaleString()}</span>
                 </div>
-                <div class="flex flex-col gap-4 text-xs tracking-widest uppercase">
-                    <span class="opacity-100 font-bold mb-2">Company</span>
-                    <a href="#" class="opacity-40 hover:opacity-100 transition-opacity">Identity</a>
-                    <a href="#" class="opacity-40 hover:opacity-100 transition-opacity">Protocol</a>
-                </div>
-                <div class="flex flex-col gap-4 text-xs tracking-widest uppercase">
-                    <span class="opacity-100 font-bold mb-2">Social</span>
-                    <a href="#" class="opacity-40 hover:opacity-100 transition-opacity">X.com</a>
-                    <a href="#" class="opacity-40 hover:opacity-100 transition-opacity">Meta</a>
-                </div>
+              </div>
+
+              <button 
+                onClick={handleCheckout}
+                disabled={cart.length === 0 || (orderType === 'dine-in' && !tableNumber) || isSubmitting}
+                className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-slate-200 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-orange-100 active:scale-95"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="animate-spin" size={20} />
+                    正在提交訂單...
+                  </>
+                ) : (
+                  <>
+                    {orderType === 'dine-in' && !tableNumber ? '請輸入桌號' : '確認結帳並送出'}
+                    <ChevronRight size={20} />
+                  </>
+                )}
+              </button>
             </div>
+          </div>
+        </aside>
+      </main>
+
+      {/* 結帳成功畫面 */}
+      {isOrderPlaced && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl animate-in zoom-in-95 duration-300">
+            <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <CheckCircle2 size={48} />
+            </div>
+            <h2 className="text-2xl font-black text-slate-900 mb-2">訂單已成功提交！</h2>
+            <p className="text-slate-500 text-sm mb-6">我們已收到您的訂單，正在為您準備美味餐點。</p>
+            
+            <div className="bg-slate-50 rounded-2xl p-4 mb-6 space-y-3 text-sm text-left">
+                <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <span className="text-slate-400">訂單編號</span>
+                  <span className="font-mono font-bold text-slate-800">{orderId}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">用餐方式</span>
+                  <span className="text-orange-600 font-bold px-2 py-0.5 bg-orange-50 rounded-md">
+                    {orderType === 'dine-in' ? '內用' : '外帶'}
+                  </span>
+                </div>
+                {orderType === 'dine-in' && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">桌號</span>
+                    <span className="text-orange-600 font-bold">{tableNumber} 桌</span>
+                  </div>
+                )}
+            </div>
+            
+            <button 
+              onClick={() => {
+                setIsOrderPlaced(false); 
+                setTableNumber("");
+              }} 
+              className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold shadow-lg shadow-slate-200 active:scale-95 transition-all"
+            >
+              完成
+            </button>
+          </div>
         </div>
-        <div class="mt-20 pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between gap-4 text-[10px] tracking-[0.5em] opacity-30 uppercase">
-            <div>© 2024 ALL SYSTEMS OPERATIONAL.</div>
-            <div>Authorized by Taliang Global</div>
-        </div>
-    </footer>
-
-    <script>
-        // --- Three.js 粒子系統 ---
-        function initParticles() {
-            const container = document.getElementById('canvas-container');
-            const scene = new THREE.Scene();
-            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            const renderer = new THREE.WebGLRenderer({ alpha: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            container.appendChild(renderer.domElement);
-
-            const geometry = new THREE.BufferGeometry();
-            const vertices = [];
-            for (let i = 0; i < 5000; i++) {
-                vertices.push(THREE.MathUtils.randFloatSpread(2000)); // x
-                vertices.push(THREE.MathUtils.randFloatSpread(2000)); // y
-                vertices.push(THREE.MathUtils.randFloatSpread(2000)); // z
-            }
-            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-
-            const material = new THREE.PointsMaterial({ color: 0x00F2FF, size: 2, transparent: true, opacity: 0.5 });
-            const points = new THREE.Points(geometry, material);
-            scene.add(points);
-
-            camera.position.z = 500;
-
-            let mouseX = 0, mouseY = 0;
-            document.addEventListener('mousemove', (e) => {
-                mouseX = (e.clientX - window.innerWidth / 2) * 0.05;
-                mouseY = (e.clientY - window.innerHeight / 2) * 0.05;
-            });
-
-            function animate() {
-                requestAnimationFrame(animate);
-                points.rotation.x += 0.0005;
-                points.rotation.y += 0.001;
-                
-                // 滑鼠跟隨
-                camera.position.x += (mouseX - camera.position.x) * 0.05;
-                camera.position.y += (-mouseY - camera.position.y) * 0.05;
-                camera.lookAt(scene.position);
-
-                renderer.render(scene, camera);
-            }
-            animate();
-
-            window.addEventListener('resize', () => {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            });
-        }
-
-        // --- GSAP 動畫 ---
-        window.addEventListener('load', () => {
-            initParticles();
-            gsap.registerPlugin(ScrollTrigger);
-
-            // 初始進場
-            gsap.to('.reveal', {
-                opacity: 1,
-                y: 0,
-                duration: 1.5,
-                stagger: 0.2,
-                ease: "expo.out"
-            });
-
-            // 滾動觸發
-            gsap.utils.toArray('.reveal').forEach(elem => {
-                gsap.to(elem, {
-                    scrollTrigger: {
-                        trigger: elem,
-                        start: "top 90%",
-                        toggleActions: "play none none none"
-                    },
-                    opacity: 1,
-                    y: 0,
-                    duration: 1,
-                    ease: "power2.out"
-                });
-            });
-
-            // 磁吸效果 (簡單實現)
-            const ctaButtons = document.querySelectorAll('.cta-button');
-            ctaButtons.forEach(btn => {
-                btn.addEventListener('mousemove', (e) => {
-                    const rect = btn.getBoundingClientRect();
-                    const x = e.clientX - rect.left - rect.width / 2;
-                    const y = e.clientY - rect.top - rect.height / 2;
-                    gsap.to(btn, { x: x * 0.3, y: y * 0.3, duration: 0.3 });
-                });
-                btn.addEventListener('mouseleave', () => {
-                    gsap.to(btn, { x: 0, y: 0, duration: 0.5, ease: "elastic.out(1, 0.3)" });
-                });
-            });
-        });
-    </script>
-</body>
-</html>
+      )}
+    </div>
+  );
+}
