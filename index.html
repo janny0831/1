@@ -1,388 +1,383 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>電力項目 AI 辨識系統</title>
+    <title>大量科技股份有限公司 | 科技未來衝擊</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&family=Noto+Sans+TC:wght@300;400;700&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; }
-        .log-entry { font-family: 'Consolas', 'Monaco', monospace; }
+        :root {
+            --color-bg: #050505;
+            --color-primary: #00F2FF; /* 賽博霓虹藍 */
+            --color-secondary: #7000FF; /* 幻影紫 */
+            --font-main: 'Space Grotesk', 'Noto Sans TC', sans-serif;
+        }
+
+        body {
+            background-color: var(--color-bg);
+            color: #ffffff;
+            font-family: var(--font-main);
+            overflow-x: hidden;
+        }
+
+        /* 噪點紋理層 */
+        .noise::before {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: url('https://grainy-gradients.vercel.app/noise.svg');
+            opacity: 0.15;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        /* 邊框光束動畫 (Border Beam) */
+        .border-beam {
+            position: relative;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+        }
+        .border-beam::after {
+            content: "";
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: conic-gradient(from 0deg, transparent, var(--color-primary), transparent 30%);
+            animation: rotate 4s linear infinite;
+            z-index: -1;
+        }
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* 磨砂玻璃效果 */
+        .glass {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* 文字霓虹發光 */
+        .neon-text {
+            text-shadow: 0 0 10px rgba(0, 242, 255, 0.5), 0 0 20px rgba(0, 242, 255, 0.3);
+        }
+
+        /* 自訂動畫載體 */
+        .reveal { opacity: 0; transform: translateY(40px); }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .cta-button {
+            background: linear-gradient(90deg, var(--color-primary), var(--color-secondary));
+            padding: 2px;
+            display: inline-block;
+            transition: transform 0.3s ease;
+        }
+        .cta-inner {
+            background: var(--color-bg);
+            padding: 0.75rem 2rem;
+            display: block;
+            transition: background 0.3s ease;
+        }
+        .cta-button:hover .cta-inner {
+            background: transparent;
+        }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen">
+<body>
+    <div class="noise"></div>
+    <div id="canvas-container"></div>
 
-    <div id="app" class="max-w-6xl mx-auto p-4 md:p-8">
-        <header class="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <!-- 導覽列 -->
+    <nav class="fixed w-full z-50 px-6 py-6 flex justify-between items-center bg-black/50 backdrop-blur-md border-b border-white/10">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 bg-gradient-to-tr from-[--color-primary] to-[--color-secondary] rounded-full animate-pulse"></div>
+            <div class="text-xl font-bold tracking-widest neon-text">
+                大量科技 <span class="text-[10px] opacity-50 block font-light">TALIANG FUTURE TECH</span>
+            </div>
+        </div>
+        <div class="hidden md:flex space-x-10 text-xs tracking-[0.3em] uppercase">
+            <a href="#vision" class="hover:text-[--color-primary] transition-colors">Vision</a>
+            <a href="#tech" class="hover:text-[--color-primary] transition-colors">Intelligence</a>
+            <a href="#contact" class="hover:text-[--color-primary] transition-colors">Access</a>
+        </div>
+        <a href="#access" class="cta-button group">
+            <span class="cta-inner text-xs tracking-widest font-bold">立即預訂</span>
+        </a>
+    </nav>
+
+    <!-- 英雄區 (Hero) -->
+    <section class="relative min-h-screen flex items-center justify-center px-6 overflow-hidden">
+        <div class="relative z-10 text-center">
+            <div class="inline-block px-4 py-1 border border-[--color-primary]/30 rounded-full mb-6 bg-[--color-primary]/5 reveal">
+                <span class="text-[10px] tracking-[0.4em] uppercase text-[--color-primary]">Next Generation Intelligence</span>
+            </div>
+            <h1 class="text-6xl md:text-9xl font-bold mb-8 reveal" style="line-height: 0.9;">
+                數據重構<br>
+                <span class="text-transparent bg-clip-text bg-gradient-to-r from-[--color-primary] via-purple-500 to-[--color-secondary]">
+                    尊榮未來
+                </span>
+            </h1>
+            <p class="max-w-2xl mx-auto text-lg md:text-xl opacity-60 reveal mb-12 font-light leading-relaxed">
+                大量科技將極致精密與 AI 深度融合，為全球頂級工業體系提供超感官的自動化解決方案。
+            </p>
+            <div class="flex flex-col md:flex-row gap-6 justify-center reveal">
+                <button class="cta-button">
+                    <span class="cta-inner text-sm tracking-widest">探索核心系統</span>
+                </button>
+                <button class="px-8 py-3 border border-white/20 hover:border-[--color-primary] transition-all text-sm tracking-widest">
+                    技術白皮書
+                </button>
+            </div>
+        </div>
+
+        <!-- 裝飾背景圖 (帶遮罩) -->
+        <div class="absolute inset-0 z-[-1] opacity-30">
+            <img src="https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop" 
+                 alt="數位網路背景" class="w-full h-full object-cover">
+            <div class="absolute inset-0 bg-gradient-to-b from-[#050505] via-transparent to-[#050505]"></div>
+        </div>
+    </section>
+
+    <!-- 技術優勢區 -->
+    <section id="tech" class="py-32 px-6 md:px-20 relative">
+        <div class="flex flex-col items-center mb-24 text-center">
+            <h2 class="text-4xl md:text-6xl font-bold mb-6 reveal neon-text">核心技術衝擊</h2>
+            <div class="w-20 h-1 bg-[--color-primary] reveal"></div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <!-- 卡片 1 -->
+            <div class="glass p-10 rounded-2xl reveal group hover:border-[--color-primary]/50 transition-all duration-500">
+                <div class="w-16 h-16 mb-8 flex items-center justify-center rounded-xl bg-[--color-primary]/10 text-4xl text-[--color-primary]">
+                    <iconify-icon icon="lucide:cpu"></iconify-icon>
+                </div>
+                <h3 class="text-2xl font-bold mb-4">神經元處理架構</h3>
+                <p class="opacity-50 text-sm leading-relaxed">
+                    模擬生物神經網絡，實現毫秒級的工業決策回饋，將效率推向極限。
+                </p>
+                <div class="mt-8 h-1 w-0 group-hover:w-full bg-[--color-primary] transition-all duration-500"></div>
+            </div>
+
+            <!-- 卡片 2 -->
+            <div class="glass p-10 rounded-2xl reveal group border-beam transition-all duration-500">
+                <div class="w-16 h-16 mb-8 flex items-center justify-center rounded-xl bg-purple-500/10 text-4xl text-purple-500">
+                    <iconify-icon icon="lucide:layers"></iconify-icon>
+                </div>
+                <h3 class="text-2xl font-bold mb-4">超精密數位孿生</h3>
+                <p class="opacity-50 text-sm leading-relaxed">
+                    虛擬與現實的完美映射，在數位空間中預演每一場完美的生產節奏。
+                </p>
+                <div class="mt-8 h-1 w-0 group-hover:w-full bg-purple-500 transition-all duration-500"></div>
+            </div>
+
+            <!-- 卡片 3 -->
+            <div class="glass p-10 rounded-2xl reveal group hover:border-[--color-secondary]/50 transition-all duration-500">
+                <div class="w-16 h-16 mb-8 flex items-center justify-center rounded-xl bg-[--color-secondary]/10 text-4xl text-[--color-secondary]">
+                    <iconify-icon icon="lucide:shield-check"></iconify-icon>
+                </div>
+                <h3 class="text-2xl font-bold mb-4">區塊鏈安全性系統</h3>
+                <p class="opacity-50 text-sm leading-relaxed">
+                    不可篡改的尊榮保障，為企業核心數據築起最堅固的未來防線。
+                </p>
+                <div class="mt-8 h-1 w-0 group-hover:w-full bg-[--color-secondary] transition-all duration-500"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 視覺影像區 (Impact Grid) -->
+    <section class="py-20 px-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 h-[600px]">
+            <div class="relative overflow-hidden group reveal">
+                <img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=2070&auto=format&fit=crop" 
+                     class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                <div class="absolute inset-0 bg-black/40 group-hover:bg-black/10 transition-all"></div>
+                <div class="absolute bottom-10 left-10">
+                    <span class="text-[10px] tracking-widest uppercase opacity-60">System Interface</span>
+                    <h3 class="text-3xl font-bold">未來控制中樞</h3>
+                </div>
+            </div>
+            <div class="grid grid-rows-2 gap-4">
+                <div class="relative overflow-hidden group reveal">
+                    <img src="https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=2070&auto=format&fit=crop" 
+                         class="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-700">
+                    <div class="absolute inset-0 bg-[--color-primary]/10"></div>
+                </div>
+                <div class="relative overflow-hidden group reveal">
+                    <img src="https://images.unsplash.com/photo-1531297484001-80022131f5a1?q=80&w=2020&auto=format&fit=crop" 
+                         class="w-full h-full object-cover">
+                    <div class="absolute inset-0 bg-gradient-to-r from-black to-transparent"></div>
+                    <div class="absolute inset-y-0 left-10 flex flex-col justify-center">
+                        <h4 class="text-xl font-bold mb-2">自動化演進</h4>
+                        <p class="text-xs opacity-60">Every micro-step matters.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 終極 CTA -->
+    <section id="access" class="py-40 px-6 text-center relative">
+        <div class="max-w-4xl mx-auto">
+            <h2 class="text-5xl md:text-8xl font-bold mb-10 reveal tracking-tighter">
+                加入<span class="neon-text text-[--color-primary]">大量</span>進化
+            </h2>
+            <p class="text-lg opacity-60 mb-12 reveal">我們正在尋找定義下一個世紀的合作夥伴。</p>
+            <div class="reveal">
+                <button class="cta-button">
+                    <span class="cta-inner text-xl py-6 px-16 tracking-[0.2em] font-bold">立即取得授權</span>
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- 頁尾 -->
+    <footer class="py-20 px-6 border-t border-white/10 bg-black">
+        <div class="flex flex-col md:flex-row justify-between items-start gap-12">
             <div>
-                <h1 class="text-3xl font-bold text-slate-800 flex items-center gap-3">
-                    <i data-lucide="zap" class="text-yellow-500 fill-yellow-500"></i>
-                    電力項目 AI 辨識系統
-                </h1>
-                <p class="text-slate-500 mt-1">自動辨識、排序並匯出 XLSX 盤查報表</p>
+                <div class="text-2xl font-bold tracking-widest neon-text mb-6">TALIANG TECH</div>
+                <p class="max-w-xs text-xs opacity-40 leading-relaxed uppercase tracking-widest">
+                    Leading the world through autonomous intelligence and precision engineering.
+                </p>
             </div>
-            <div class="flex gap-2">
-                <!-- 新增：偵錯日誌按鈕 -->
-                <button id="toggleLogBtn" class="flex items-center gap-2 px-4 py-2.5 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-all shadow-sm active:scale-95">
-                    <i data-lucide="terminal"></i> 偵錯日誌
-                </button>
-                <button id="exportBtn" disabled class="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all shadow-md active:scale-95">
-                    <i data-lucide="download"></i> 匯出 XLSX
-                </button>
-            </div>
-        </header>
-
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div class="lg:col-span-4 space-y-6">
-                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <label class="block w-full cursor-pointer">
-                        <div class="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-400 hover:bg-blue-50 transition-all group">
-                            <i data-lucide="upload" class="mx-auto text-slate-400 group-hover:text-blue-500 mb-2"></i>
-                            <span class="text-slate-600 font-medium">上傳電費單圖片</span>
-                            <input type="file" id="fileInput" multiple accept="image/*" class="hidden">
-                        </div>
-                    </label>
-                    <button id="processBtn" class="hidden w-full mt-4 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98]">
-                        <i data-lucide="file-text"></i>
-                        <span>開始批次辨識</span>
-                    </button>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-12">
+                <div class="flex flex-col gap-4 text-xs tracking-widest uppercase">
+                    <span class="opacity-100 font-bold mb-2">Structure</span>
+                    <a href="#" class="opacity-40 hover:opacity-100 transition-opacity">Framework</a>
+                    <a href="#" class="opacity-40 hover:opacity-100 transition-opacity">Integration</a>
                 </div>
-
-                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div class="p-4 bg-slate-50 border-b border-slate-200 font-semibold text-slate-700 flex justify-between">
-                        <span>上傳清單</span>
-                        <span id="fileCount" class="text-blue-600">0 檔案</span>
-                    </div>
-                    <div id="fileList" class="max-h-[350px] overflow-y-auto">
-                        <div class="p-10 text-center text-slate-400 text-sm">請選擇檔案上傳</div>
-                    </div>
+                <div class="flex flex-col gap-4 text-xs tracking-widest uppercase">
+                    <span class="opacity-100 font-bold mb-2">Company</span>
+                    <a href="#" class="opacity-40 hover:opacity-100 transition-opacity">Identity</a>
+                    <a href="#" class="opacity-40 hover:opacity-100 transition-opacity">Protocol</a>
                 </div>
-            </div>
-
-            <div class="lg:col-span-8">
-                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 h-full flex flex-col min-h-[550px]">
-                    <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                        <span class="font-semibold text-slate-700">自動排序結果</span>
-                    </div>
-                    <div class="flex-1 overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead class="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider border-b">
-                                <tr>
-                                    <th class="px-4 py-3 font-semibold">項次</th>
-                                    <th class="px-4 py-3 font-semibold">用電地址</th>
-                                    <th class="px-4 py-3 font-semibold">計費期間</th>
-                                    <th class="px-4 py-3 font-semibold">用電度數</th>
-                                    <th class="px-4 py-3 font-semibold text-center">佐證</th>
-                                </tr>
-                            </thead>
-                            <tbody id="resultBody" class="divide-y text-sm">
-                                <tr>
-                                    <td colspan="5" class="px-4 py-24 text-center text-slate-400">尚未產生數據</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                <div class="flex flex-col gap-4 text-xs tracking-widest uppercase">
+                    <span class="opacity-100 font-bold mb-2">Social</span>
+                    <a href="#" class="opacity-40 hover:opacity-100 transition-opacity">X.com</a>
+                    <a href="#" class="opacity-40 hover:opacity-100 transition-opacity">Meta</a>
                 </div>
             </div>
         </div>
-
-        <!-- 新增：偵錯日誌面板 -->
-        <div id="logPanel" class="hidden mt-6 bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
-            <div class="flex items-center justify-between px-4 py-2 bg-slate-800 border-b border-slate-700 text-slate-300 text-xs font-bold">
-                <span class="flex items-center gap-2"><i data-lucide="terminal" class="w-3 h-3"></i> DEBUG CONSOLE</span>
-                <button id="clearLogBtn" class="hover:text-white transition-colors">清除日誌</button>
-            </div>
-            <div id="logContent" class="p-4 h-64 overflow-y-auto text-[10px] text-green-400 log-entry space-y-1 bg-black">
-                <div>[SYSTEM] 偵錯日誌已啟動。等待辨識任務...</div>
-            </div>
+        <div class="mt-20 pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between gap-4 text-[10px] tracking-[0.5em] opacity-30 uppercase">
+            <div>© 2024 ALL SYSTEMS OPERATIONAL.</div>
+            <div>Authorized by Taliang Global</div>
         </div>
-    </div>
-
-    <div id="imageModal" class="hidden fixed inset-0 bg-slate-900/90 z-50 flex items-center justify-center p-4 backdrop-blur-md">
-        <div class="relative max-w-5xl w-full bg-white rounded-2xl p-2 shadow-2xl">
-            <button id="closeModal" class="absolute top-4 right-4 bg-slate-800/50 hover:bg-slate-800 text-white p-2 rounded-full z-10">
-                <i data-lucide="x"></i>
-            </button>
-            <img id="modalImg" src="" class="w-full h-auto max-h-[80vh] object-contain rounded-xl shadow-inner">
-        </div>
-    </div>
+    </footer>
 
     <script>
-        // 已經替換為您提供的 API Key
-        const API_KEY = "AIzaSyDyksBu9J5dAqaIgb_UCM7pz8Um1qzLTjU"; 
-        
-        // 更換為所有公開 API Key 皆預設支援的穩定模型
-        const MODEL_NAME = "gemini-1.5-flash"; 
-        
-        let files = [];
-        let records = [];
-        let isProcessing = false;
+        // --- Three.js 粒子系統 ---
+        function initParticles() {
+            const container = document.getElementById('canvas-container');
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer({ alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            container.appendChild(renderer.domElement);
 
-        lucide.createIcons();
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+            for (let i = 0; i < 5000; i++) {
+                vertices.push(THREE.MathUtils.randFloatSpread(2000)); // x
+                vertices.push(THREE.MathUtils.randFloatSpread(2000)); // y
+                vertices.push(THREE.MathUtils.randFloatSpread(2000)); // z
+            }
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
 
-        const fileInput = document.getElementById('fileInput');
-        const fileList = document.getElementById('fileList');
-        const fileCount = document.getElementById('fileCount');
-        const processBtn = document.getElementById('processBtn');
-        const resultBody = document.getElementById('resultBody');
-        const exportBtn = document.getElementById('exportBtn');
-        const imageModal = document.getElementById('imageModal');
-        const modalImg = document.getElementById('modalImg');
-        const closeModal = document.getElementById('closeModal');
-        
-        // 偵錯日誌相關元素
-        const toggleLogBtn = document.getElementById('toggleLogBtn');
-        const logPanel = document.getElementById('logPanel');
-        const logContent = document.getElementById('logContent');
-        const clearLogBtn = document.getElementById('clearLogBtn');
+            const material = new THREE.PointsMaterial({ color: 0x00F2FF, size: 2, transparent: true, opacity: 0.5 });
+            const points = new THREE.Points(geometry, material);
+            scene.add(points);
 
-        fileInput.addEventListener('change', handleFiles);
-        processBtn.addEventListener('click', startBatchProcessing);
-        exportBtn.addEventListener('click', exportToXLSX);
-        closeModal.addEventListener('click', () => imageModal.classList.add('hidden'));
-        
-        // 偵錯日誌事件
-        toggleLogBtn.addEventListener('click', () => logPanel.classList.toggle('hidden'));
-        clearLogBtn.addEventListener('click', () => logContent.innerHTML = '<div>[SYSTEM] 日誌已清除。</div>');
+            camera.position.z = 500;
 
-        function logToConsole(message, type = 'info') {
-            const time = new Date().toLocaleTimeString();
-            let colorClass = 'text-green-400';
-            if (type === 'error') colorClass = 'text-red-400';
-            if (type === 'warn') colorClass = 'text-yellow-400';
-            
-            const div = document.createElement('div');
-            div.className = colorClass;
-            div.innerHTML = `[${time}] ${message}`;
-            logContent.appendChild(div);
-            logContent.scrollTop = logContent.scrollHeight;
-            console.log(`[${time}] ${message}`);
+            let mouseX = 0, mouseY = 0;
+            document.addEventListener('mousemove', (e) => {
+                mouseX = (e.clientX - window.innerWidth / 2) * 0.05;
+                mouseY = (e.clientY - window.innerHeight / 2) * 0.05;
+            });
+
+            function animate() {
+                requestAnimationFrame(animate);
+                points.rotation.x += 0.0005;
+                points.rotation.y += 0.001;
+                
+                // 滑鼠跟隨
+                camera.position.x += (mouseX - camera.position.x) * 0.05;
+                camera.position.y += (-mouseY - camera.position.y) * 0.05;
+                camera.lookAt(scene.position);
+
+                renderer.render(scene, camera);
+            }
+            animate();
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
         }
 
-        function handleFiles(e) {
-            const uploaded = Array.from(e.target.files);
-            uploaded.forEach(file => {
-                files.push({
-                    id: crypto.randomUUID(),
-                    file: file,
-                    preview: URL.createObjectURL(file),
-                    status: 'pending'
+        // --- GSAP 動畫 ---
+        window.addEventListener('load', () => {
+            initParticles();
+            gsap.registerPlugin(ScrollTrigger);
+
+            // 初始進場
+            gsap.to('.reveal', {
+                opacity: 1,
+                y: 0,
+                duration: 1.5,
+                stagger: 0.2,
+                ease: "expo.out"
+            });
+
+            // 滾動觸發
+            gsap.utils.toArray('.reveal').forEach(elem => {
+                gsap.to(elem, {
+                    scrollTrigger: {
+                        trigger: elem,
+                        start: "top 90%",
+                        toggleActions: "play none none none"
+                    },
+                    opacity: 1,
+                    y: 0,
+                    duration: 1,
+                    ease: "power2.out"
                 });
             });
-            logToConsole(`已加入 ${uploaded.length} 個檔案，目前總計 ${files.length} 個。`);
-            renderFileList();
-            updateUI();
-        }
 
-        function renderFileList() {
-            if (files.length === 0) {
-                fileList.innerHTML = '<div class="p-10 text-center text-slate-400 text-sm">請選擇檔案上傳</div>';
-                return;
-            }
-            fileList.innerHTML = files.map(f => `
-                <div class="p-3 border-b flex items-center justify-between group hover:bg-slate-50">
-                    <div class="flex items-center gap-3 overflow-hidden">
-                        <img src="${f.preview}" class="w-10 h-10 object-cover rounded border">
-                        <div class="truncate">
-                            <p class="text-xs font-medium text-slate-700 truncate">${f.file.name}</p>
-                            <span class="text-[10px] ${f.status === 'error' ? 'text-red-500' : 'text-slate-400'}">${f.status.toUpperCase()}</span>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        ${f.status === 'processing' ? '<i data-lucide="loader-2" class="w-4 h-4 text-blue-500 animate-spin"></i>' : ''}
-                        <button onclick="removeFile('${f.id}')" class="p-1 text-slate-400 hover:text-red-500">
-                            <i data-lucide="trash-2" style="width:16px;height:16px;"></i>
-                        </button>
-                    </div>
-                </div>
-            `).join('');
-            lucide.createIcons();
-            fileCount.innerText = `${files.length} 檔案`;
-        }
-
-        function updateUI() {
-            const hasPending = files.some(f => f.status === 'pending');
-            processBtn.classList.toggle('hidden', files.length === 0);
-            processBtn.disabled = isProcessing || !hasPending;
-            exportBtn.disabled = records.length === 0;
-        }
-
-        window.removeFile = (id) => {
-            files = files.filter(f => f.id !== id);
-            records = records.filter(r => r.id !== id);
-            renderFileList();
-            renderTable();
-            updateUI();
-        };
-
-        async function fetchWithRetry(url, options, maxRetries = 5) {
-            let delay = 1000;
-            for (let i = 0; i < maxRetries; i++) {
-                try {
-                    logToConsole(`正在傳送請求 (嘗試次數: ${i+1})...`);
-                    const response = await fetch(url, options);
-                    
-                    if (response.ok) {
-                        logToConsole(`請求成功: 狀態碼 ${response.status}`);
-                        return await response.json();
-                    }
-                    
-                    const errData = await response.json();
-                    const errMsg = errData.error?.message || "未知 API 錯誤";
-                    logToConsole(`API 錯誤 (${response.status}): ${errMsg}`, 'error');
-                    
-                    if (response.status !== 429 && response.status < 500) {
-                        throw new Error(errMsg);
-                    }
-                } catch (err) {
-                    if (i === maxRetries - 1) throw err;
-                    logToConsole(`網絡錯誤，將在 ${delay/1000} 秒後重試...`, 'warn');
-                }
-                await new Promise(res => setTimeout(res, delay));
-                delay *= 2;
-            }
-        }
-
-        async function startBatchProcessing() {
-            isProcessing = true;
-            updateUI();
-            logToConsole("開始批次辨識任務...");
-
-            for (let i = 0; i < files.length; i++) {
-                if (files[i].status !== 'pending') continue;
-                files[i].status = 'processing';
-                renderFileList();
-
-                try {
-                    logToConsole(`處理中: ${files[i].file.name}`);
-                    const result = await recognizeBill(files[i]);
-                    records.push(result);
-                    files[i].status = 'completed';
-                    logToConsole(`辨識完成: ${files[i].file.name}`);
-                } catch (err) {
-                    logToConsole(`辨識失敗: ${files[i].file.name} - ${err.message}`, 'error');
-                    files[i].status = 'error';
-                }
-                renderFileList();
-                renderTable();
-            }
-            isProcessing = false;
-            updateUI();
-            logToConsole("批次辨識任務結束。");
-        }
-
-        async function recognizeBill(fileObj) {
-            const base64 = await new Promise(resolve => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result.split(',')[1]);
-                reader.readAsDataURL(fileObj.file);
+            // 磁吸效果 (簡單實現)
+            const ctaButtons = document.querySelectorAll('.cta-button');
+            ctaButtons.forEach(btn => {
+                btn.addEventListener('mousemove', (e) => {
+                    const rect = btn.getBoundingClientRect();
+                    const x = e.clientX - rect.left - rect.width / 2;
+                    const y = e.clientY - rect.top - rect.height / 2;
+                    gsap.to(btn, { x: x * 0.3, y: y * 0.3, duration: 0.3 });
+                });
+                btn.addEventListener('mouseleave', () => {
+                    gsap.to(btn, { x: 0, y: 0, duration: 0.5, ease: "elastic.out(1, 0.3)" });
+                });
             });
-
-            const prompt = `你是一個電費單辨識專家。請從這張電費單圖片中提取以下資訊：
-            1. address: 辨識地址，需判斷為'桃園市八德區友聯街72號1樓'或'八德區瑞塘里友聯街62號'
-            2. startDate: 計費開始日期 (YYYY-MM-DD)
-            3. endDate: 計費結束日期 (YYYY-MM-DD)
-            4. usage: 總用電度數 (數字)`;
-
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
-            const payload = {
-                contents: [{ 
-                    role: "user",
-                    parts: [
-                        { text: prompt }, 
-                        { inlineData: { mimeType: fileObj.file.type, data: base64 } }
-                    ] 
-                }],
-                generationConfig: { 
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: "OBJECT",
-                        properties: {
-                            address: { type: "STRING" },
-                            startDate: { type: "STRING" },
-                            endDate: { type: "STRING" },
-                            usage: { type: "NUMBER" }
-                        },
-                        required: ["address", "startDate", "endDate", "usage"]
-                    }
-                }
-            };
-
-            const data = await fetchWithRetry(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!text) throw new Error("無效的 API 回傳格式");
-            
-            try {
-                const content = JSON.parse(text);
-                return {
-                    id: fileObj.id,
-                    ...content,
-                    preview: fileObj.preview,
-                    timestamp: new Date(content.startDate).getTime()
-                };
-            } catch (e) {
-                logToConsole(`JSON 解析失敗: ${text}`, 'error');
-                throw new Error("模型回傳內容非正確 JSON");
-            }
-        }
-
-        function renderTable() {
-            const sorted = [...records].sort((a, b) => a.timestamp - b.timestamp);
-            if (sorted.length === 0) {
-                resultBody.innerHTML = `<tr><td colspan="5" class="px-4 py-24 text-center text-slate-400 italic">尚未產生數據</td></tr>`;
-                return;
-            }
-            resultBody.innerHTML = sorted.map((r, i) => `
-                <tr class="hover:bg-blue-50 transition-colors">
-                    <td class="px-4 py-4 text-slate-400 font-mono text-xs">${i + 1}</td>
-                    <td class="px-4 py-4">
-                        <span class="font-medium text-slate-700">${r.address.includes('72號') ? '友聯街72號' : '友聯街62號'}</span>
-                        <span class="text-[10px] text-slate-400 block">${r.address}</span>
-                    </td>
-                    <td class="px-4 py-4 text-slate-600">${r.startDate} ~ ${r.endDate}</td>
-                    <td class="px-4 py-4 font-bold text-slate-800">${r.usage.toLocaleString()} 度</td>
-                    <td class="px-4 py-4 text-center">
-                        <button onclick="preview('${r.preview}')" class="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md border border-blue-200">
-                            <i data-lucide="eye" style="width:16px;height:16px;"></i>
-                        </button>
-                    </td>
-                </tr>
-            `).join('');
-            lucide.createIcons();
-            exportBtn.disabled = records.length === 0;
-        }
-
-        window.preview = (url) => {
-            modalImg.src = url;
-            imageModal.classList.remove('hidden');
-        };
-
-        function exportToXLSX() {
-            const groupA = records.filter(r => r.address.includes("72號")).sort((a,b) => a.timestamp - b.timestamp);
-            const groupB = records.filter(r => r.address.includes("62號")).sort((a,b) => a.timestamp - b.timestamp);
-            const data = [
-                ["友聯街(72號)", null, null, null, null, "友聯街(62號)"],
-                ["項次", "開始日期", "結束日期", "度數", null, "項次", "度數"]
-            ];
-            const maxLen = Math.max(groupA.length, groupB.length);
-            for (let i = 0; i < maxLen; i++) {
-                const a = groupA[i] || {};
-                const b = groupB[i] || {};
-                data.push([a.id ? i + 1 : null, a.startDate || null, a.endDate || null, a.usage || null, null, b.id ? i + 1 : null, b.usage || null]);
-            }
-            const ws = XLSX.utils.aoa_to_sheet(data);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Scope2_Electricity");
-            XLSX.writeFile(wb, `電力盤查辨識結果_${new Date().toLocaleDateString()}.xlsx`);
-        }
+        });
     </script>
 </body>
 </html>
