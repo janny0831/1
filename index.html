@@ -3,10 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>雙語文件自動翻譯工具 (修正版)</title>
+    <title>雙語文件自動翻譯工具 (支援 Excel & Word)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <!-- 新增 JSZip 用於解析 DOCX 檔案 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         .drag-over { border-color: #3b82f6 !important; background-color: #eff6ff !important; }
@@ -19,7 +21,7 @@
     <div class="max-w-4xl mx-auto pt-10 px-4 pb-20">
         <div class="text-center mb-10">
             <h1 class="text-3xl font-bold text-gray-900 mb-2"><i class="fa-solid fa-language text-blue-500 mr-2"></i>自動雙語文件翻譯機</h1>
-            <p class="text-gray-500">保留中文原文，於下方自動新增泰文翻譯，維持 Excel 原始排版。</p>
+            <p class="text-gray-500">保留原文，於下方自動新增翻譯，維持 Excel 與 Word 原始排版。</p>
         </div>
 
         <div class="bg-white rounded-xl shadow-lg p-8">
@@ -30,20 +32,27 @@
                     <select id="targetLang" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="th" selected>泰文 (Thai)</option>
                         <option value="en">英文 (English)</option>
+                        <option value="ja">日文 (Japanese)</option>
+                        <option value="vi">越南文 (Vietnamese)</option>
                     </select>
                 </div>
             </div>
 
+            <!-- 拖曳區 -->
             <div id="dropZone" class="border-2 border-dashed border-gray-300 rounded-xl p-10 text-center cursor-pointer transition-colors duration-200 hover:bg-gray-50">
-                <input type="file" id="fileInput" accept=".xlsx" class="hidden" />
-                <div class="text-5xl text-gray-400 mb-4"><i class="fa-regular fa-file-excel"></i></div>
+                <input type="file" id="fileInput" accept=".xlsx, .docx" class="hidden" />
+                <div class="text-5xl mb-4 flex justify-center space-x-4">
+                    <i class="fa-regular fa-file-excel text-green-500"></i>
+                    <i class="fa-regular fa-file-word text-blue-500"></i>
+                </div>
                 <h3 class="text-lg font-medium text-gray-700 mb-1">點擊或拖曳檔案至此</h3>
-                <p class="text-sm text-gray-500">僅支援 .xlsx 格式</p>
+                <p class="text-sm text-gray-500">支援 .xlsx (Excel) 與 .docx (Word) 格式</p>
             </div>
 
+            <!-- 檔案資訊區 -->
             <div id="fileInfo" class="hidden mt-6 bg-blue-50 border border-blue-100 rounded-lg p-4 flex items-center justify-between">
                 <div class="flex items-center">
-                    <i class="fa-solid fa-file-excel text-green-600 text-2xl mr-3"></i>
+                    <i id="fileIcon" class="fa-solid text-2xl mr-3"></i>
                     <div>
                         <p id="fileName" class="font-medium text-gray-800"></p>
                         <p id="fileSize" class="text-xs text-gray-500"></p>
@@ -54,6 +63,7 @@
                 </button>
             </div>
 
+            <!-- 進度與日誌區 -->
             <div id="progressArea" class="hidden mt-8">
                 <div class="flex justify-between text-sm text-gray-600 mb-2">
                     <span id="progressText">準備中...</span>
@@ -73,8 +83,10 @@
         const fileInfo = document.getElementById('fileInfo');
         const startBtn = document.getElementById('startBtn');
         const logConsole = document.getElementById('logConsole');
+        const fileIcon = document.getElementById('fileIcon');
 
         let currentFile = null;
+        let fileType = ''; // 'excel' 或 'word'
 
         dropZone.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files[0]));
@@ -83,11 +95,28 @@
         dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.classList.remove('drag-over'); handleFileSelect(e.dataTransfer.files[0]); });
 
         function handleFileSelect(file) {
-            if (!file || !file.name.endsWith('.xlsx')) return;
+            if (!file) return;
+            
+            const fileName = file.name.toLowerCase();
+            if (fileName.endsWith('.xlsx')) {
+                fileType = 'excel';
+                fileIcon.className = "fa-solid fa-file-excel text-green-600 text-2xl mr-3";
+            } else if (fileName.endsWith('.docx')) {
+                fileType = 'word';
+                fileIcon.className = "fa-solid fa-file-word text-blue-600 text-2xl mr-3";
+            } else {
+                alert('僅支援 .xlsx 或 .docx 格式！');
+                return;
+            }
+
             currentFile = file;
             document.getElementById('fileName').textContent = file.name;
             document.getElementById('fileSize').textContent = (file.size / 1024).toFixed(2) + ' KB';
             fileInfo.classList.remove('hidden');
+            
+            // 重置狀態
+            document.getElementById('progressArea').classList.add('hidden');
+            startBtn.disabled = false;
         }
 
         async function translateText(text, targetLang) {
@@ -97,18 +126,28 @@
                 const response = await fetch(url);
                 const data = await response.json();
                 return data[0].map(x => x[0]).join('') || text;
-            } catch (e) { return text; }
+            } catch (e) { 
+                console.error("翻譯錯誤:", e);
+                return text; 
+            }
         }
 
-        startBtn.addEventListener('click', async () => {
-            if (!currentFile) return;
-            const targetLang = document.getElementById('targetLang').value;
-            startBtn.disabled = true;
-            document.getElementById('progressArea').classList.remove('hidden');
-            logConsole.innerHTML = "<div>> 任務開始...</div>";
+        function updateProgress(current, total) {
+            const p = Math.round((current / total) * 100);
+            document.getElementById('progressBar').style.width = p + '%';
+            document.getElementById('progressPercent').textContent = p + '%';
+            document.getElementById('progressText').textContent = `處理中: ${current}/${total}`;
+        }
 
+        function logMsg(msg) {
+            logConsole.innerHTML += `<div>> ${msg}</div>`;
+            logConsole.scrollTop = logConsole.scrollHeight;
+        }
+
+        // ================= Excel 處理邏輯 =================
+        async function processExcel(file, targetLang) {
             const workbook = new ExcelJS.Workbook();
-            await workbook.xlsx.load(await currentFile.arrayBuffer());
+            await workbook.xlsx.load(await file.arrayBuffer());
 
             let cells = [];
             workbook.eachSheet(ws => {
@@ -124,26 +163,109 @@
             for (let i = 0; i < cells.length; i++) {
                 const cell = cells[i];
                 const originalText = String(cell.value).trim();
-                
-                // 執行翻譯
                 const translatedText = await translateText(originalText, targetLang);
                 
-                // 重要修正：確保中文在第一行，泰文在第二行，不重複泰文
                 cell.value = `${originalText}\n(${translatedText})`;
-                
-                // 強制換行排版
                 cell.alignment = { ...cell.alignment, wrapText: true, vertical: 'middle' };
-
-                const p = Math.round(((i + 1) / cells.length) * 100);
-                document.getElementById('progressBar').style.width = p + '%';
-                document.getElementById('progressPercent').textContent = p + '%';
-                document.getElementById('progressText').textContent = `處理中: ${i+1}/${cells.length}`;
+                
+                updateProgress(i + 1, cells.length);
             }
 
             const buffer = await workbook.xlsx.writeBuffer();
-            saveAs(new Blob([buffer]), `${currentFile.name.replace('.xlsx', '')}_Bilingual.xlsx`);
-            logConsole.innerHTML += "<div>> ✅ 翻譯完成，請查看下載檔案。</div>";
-            startBtn.disabled = false;
+            saveAs(new Blob([buffer]), `${file.name.replace('.xlsx', '')}_Bilingual.xlsx`);
+        }
+
+        // ================= Word (DOCX) 處理邏輯 =================
+        async function processWord(file, targetLang) {
+            const zip = new JSZip();
+            const loadedZip = await zip.loadAsync(file);
+            
+            // Word 的主要文字內容存在 word/document.xml 中
+            const docXmlFile = loadedZip.file("word/document.xml");
+            if (!docXmlFile) throw new Error("無法讀取 Word 文件結構");
+
+            const xmlString = await docXmlFile.async("string");
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+            const wNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+            
+            // 抓取所有段落 <w:p>
+            const paragraphs = xmlDoc.getElementsByTagName("w:p");
+            let translatableParagraphs = [];
+
+            // 過濾並找出有實際文字的段落
+            for (let i = 0; i < paragraphs.length; i++) {
+                let text = "";
+                const tNodes = paragraphs[i].getElementsByTagName("w:t");
+                for (let j = 0; j < tNodes.length; j++) text += tNodes[j].textContent;
+                
+                if (text.trim()) {
+                    translatableParagraphs.push({ element: paragraphs[i], text: text.trim() });
+                }
+            }
+
+            const total = translatableParagraphs.length;
+
+            for (let i = 0; i < total; i++) {
+                const pInfo = translatableParagraphs[i];
+                const translatedText = await translateText(pInfo.text, targetLang);
+                
+                // 在段落末尾插入換行 <w:br/> 和 翻譯文字 <w:t>
+                const newRun = xmlDoc.createElementNS(wNS, "w:r");
+                const br = xmlDoc.createElementNS(wNS, "w:br");
+                const newT = xmlDoc.createElementNS(wNS, "w:t");
+                
+                // 保留空格屬性，避免被忽略
+                newT.setAttributeNS("http://www.w3.org/XML/1998/namespace", "xml:space", "preserve");
+                newT.textContent = `(${translatedText})`;
+                
+                // 設定翻譯文字的樣式 (例如：藍色字體，可選)
+                // const rPr = xmlDoc.createElementNS(wNS, "w:rPr");
+                // const color = xmlDoc.createElementNS(wNS, "w:color");
+                // color.setAttributeNS(wNS, "w:val", "4B5563"); // 灰色
+                // rPr.appendChild(color);
+                // newRun.appendChild(rPr);
+
+                newRun.appendChild(br);
+                newRun.appendChild(newT);
+                pInfo.element.appendChild(newRun);
+                
+                updateProgress(i + 1, total);
+            }
+
+            // 將修改後的 XML 寫回 ZIP 中
+            const serializer = new XMLSerializer();
+            const newXmlString = serializer.serializeToString(xmlDoc);
+            loadedZip.file("word/document.xml", newXmlString);
+            
+            // 產生新的 DOCX 檔案
+            const buffer = await loadedZip.generateAsync({type: "arraybuffer"});
+            saveAs(new Blob([buffer]), `${file.name.replace('.docx', '')}_Bilingual.docx`);
+        }
+
+        // ================= 主執行流程 =================
+        startBtn.addEventListener('click', async () => {
+            if (!currentFile) return;
+            const targetLang = document.getElementById('targetLang').value;
+            
+            startBtn.disabled = true;
+            document.getElementById('progressArea').classList.remove('hidden');
+            logConsole.innerHTML = "";
+            logMsg(`任務開始... 格式: ${fileType.toUpperCase()}`);
+
+            try {
+                if (fileType === 'excel') {
+                    await processExcel(currentFile, targetLang);
+                } else if (fileType === 'word') {
+                    await processWord(currentFile, targetLang);
+                }
+                logMsg("✅ 翻譯完成！檔案已自動下載。");
+            } catch (error) {
+                console.error(error);
+                logMsg(`❌ 發生錯誤: ${error.message}`);
+            } finally {
+                startBtn.disabled = false;
+            }
         });
     </script>
 </body>
